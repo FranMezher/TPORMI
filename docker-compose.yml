@@ -1,0 +1,94 @@
+version: "3.8"
+
+services:
+
+  # ----------------------------
+  # definiciones de procesos
+  # ----------------------------
+  procesos:
+    image: mongo:7
+    container_name: flowops-procesos
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: flowops123
+      MONGO_INITDB_DATABASE: flowops_procesos
+    volumes:
+      - procesos:/data/db
+    networks:
+      - flowops-net
+
+  # ----------------------------
+  # estado de instancias
+  # ----------------------------
+  instancias:
+    image: mongo:7
+    container_name: flowops-instancias
+    ports:
+      - "27018:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: flowops123
+      MONGO_INITDB_DATABASE: flowops_instancias
+    volumes:
+      - instancias:/data/db
+    networks:
+      - flowops-net
+
+  # ----------------------------
+  # eventos y auditoria
+  # ----------------------------
+  auditoria:
+    image: cassandra:4
+    container_name: flowops-auditoria
+    ports:
+      - "9042:9042"
+    environment:
+      CASSANDRA_CLUSTER_NAME: flowops-cluster
+      CASSANDRA_DC: datacenter1
+    volumes:
+      - auditoria:/var/lib/cassandra
+    networks:
+      - flowops-net
+
+  # ----------------------------
+  # cache y sesiones
+  # ----------------------------
+  cache:
+    image: redis:7-alpine
+    container_name: flowops-cache
+    ports:
+      - "6379:6379"
+    volumes:
+      - cache:/data
+    networks:
+      - flowops-net
+
+  # ----------------------------
+  # busqueda full-text
+  # ----------------------------
+  busqueda:
+    image: elasticsearch:8.13.0
+    container_name: flowops-busqueda
+    ports:
+      - "9200:9200"
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    volumes:
+      - busqueda:/usr/share/elasticsearch/data
+    networks:
+      - flowops-net
+
+volumes:
+  procesos:
+  instancias:
+  auditoria:
+  cache:
+  busqueda:
+
+networks:
+  flowops-net:
+    driver: bridge
