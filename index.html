@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlowOps — Workflow Engine</title>
+<style>
+  :root {
+    --bg:       #0e0f15;
+    --canvas:   #14151c;
+    --card:     #1a1d27;
+    --border:   #2a2d3e;
+    --accent:   #ff6d5a;   /* n8n brand-ish coral */
+    --blue:     #4f8ef7;
+    --green:    #22c55e;
+    --red:      #ef4444;
+    --yellow:   #f59e0b;
+    --purple:   #a855f7;
+    --text:     #e2e8f0;
+    --muted:    #6b7280;
+    --mongo:    #00ed64;
+    --redis-r:  #d82c20;
+    --cass:     #1287b1;
+    --neo4j:    #4581c3;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif;
+         height: 100vh; overflow: hidden; display: flex; }
+
+  /* ─── SIDEBAR (n8n style) ─────────────────────────────── */
+  aside { width: 210px; background: #0a0b10; border-right: 1px solid var(--border);
+          display: flex; flex-direction: column; flex-shrink: 0; }
+  .brand { padding: 18px 18px 14px; display: flex; align-items: center; gap: 10px;
+           border-bottom: 1px solid var(--border); }
+  .brand .logo { width: 30px; height: 30px; border-radius: 7px;
+                 background: linear-gradient(135deg, var(--accent), #ff9472);
+                 display: flex; align-items: center; justify-content: center; font-size: 1rem; }
+  .brand h1 { font-size: 1rem; font-weight: 700; }
+  .brand small { display: block; font-size: .66rem; color: var(--muted); font-weight: 400; }
+  .side-nav { padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+  .side-nav button { background: none; border: none; color: var(--muted); cursor: pointer;
+                     padding: 10px 12px; font-size: .85rem; border-radius: 7px; text-align: left;
+                     display: flex; align-items: center; gap: 11px; transition: .15s; width: 100%; }
+  .side-nav button .ico { width: 18px; text-align: center; }
+  .side-nav button.active { color: #fff; background: rgba(255,109,90,.13); }
+  .side-nav button.active .ico { filter: drop-shadow(0 0 4px var(--accent)); }
+  .side-nav button:hover:not(.active) { color: var(--text); background: rgba(255,255,255,.04); }
+  .side-foot { margin-top: auto; padding: 14px 16px; border-top: 1px solid var(--border);
+               font-size: .68rem; color: var(--muted); }
+  .side-foot .dotline { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+
+  /* ─── MAIN ────────────────────────────────────────────── */
+  .stage { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .topbar { height: 50px; background: var(--card); border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; padding: 0 20px; gap: 14px; flex-shrink: 0; }
+  .topbar h2 { font-size: .95rem; font-weight: 600; }
+  .topbar .pill { font-size: .7rem; padding: 3px 10px; border-radius: 999px;
+                  background: rgba(34,197,94,.15); color: var(--green); }
+  .topbar .spacer { margin-left: auto; }
+  .topbar .clock { font-size: .75rem; color: var(--muted); }
+
+  .scroll { flex: 1; overflow: auto; }
+  .pad { padding: 22px; max-width: 1180px; margin: 0 auto; }
+  .tab { display: none; height: 100%; } .tab.active { display: block; }
+  .tab.canvas-tab.active { display: flex; flex-direction: column; }
+
+  /* ─── WORKFLOW CANVAS ─────────────────────────────────── */
+  .wf-toolbar { display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+                border-bottom: 1px solid var(--border); background: var(--card); flex-shrink: 0; }
+  .wf-toolbar .legend { display: flex; gap: 14px; margin-left: auto; font-size: .72rem; color: var(--muted); }
+  .wf-toolbar .legend span { display: flex; align-items: center; gap: 5px; }
+  .wf-toolbar .lg-line { width: 16px; height: 2px; border-radius: 2px; }
+  .zbtn { background: var(--border); border: none; color: var(--text); width: 28px; height: 28px;
+          border-radius: 6px; cursor: pointer; font-size: 1rem; }
+  .zbtn:hover { background: #353849; }
+
+  #wf-viewport { flex: 1; position: relative; overflow: hidden; cursor: grab;
+    background-color: var(--canvas);
+    background-image: radial-gradient(circle, #2a2d3e 1px, transparent 1px);
+    background-size: 22px 22px; }
+  #wf-viewport.grabbing { cursor: grabbing; }
+  #wf-world { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+  #wf-edges { position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; }
+  .wf-node { position: absolute; width: 172px; background: var(--card);
+    border: 1px solid var(--border); border-radius: 11px; padding: 11px 13px;
+    display: flex; align-items: center; gap: 11px; cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0,0,0,.35); transition: border-color .15s, box-shadow .15s, transform .1s; }
+  .wf-node:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(0,0,0,.5); }
+  .wf-node.sel { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(255,109,90,.35); }
+  .wf-node.active { border-color: var(--green); box-shadow: 0 0 0 2px rgba(34,197,94,.3), 0 0 18px rgba(34,197,94,.25); }
+  .wf-node.firing { border-color: #ffd166; box-shadow: 0 0 0 3px rgba(255,209,102,.55), 0 0 26px rgba(255,209,102,.5); transform: scale(1.06); }
+  .wf-node.clickable::after { content:'▶'; position:absolute; bottom:-7px; right:-7px; width:20px; height:20px;
+    background:var(--accent); color:#fff; border-radius:50%; font-size:.6rem; display:flex; align-items:center;
+    justify-content:center; box-shadow:0 0 0 3px var(--canvas); }
+  #wf-toast { position:absolute; top:14px; left:50%; transform:translateX(-50%) translateY(-60px); z-index:6;
+    background:var(--card); border:1px solid var(--border); border-radius:9px; padding:9px 16px; font-size:.82rem;
+    box-shadow:0 8px 24px rgba(0,0,0,.5); transition:transform .25s, opacity .25s; opacity:0; pointer-events:none; white-space:nowrap; }
+  #wf-toast.show { transform:translateX(-50%) translateY(0); opacity:1; }
+  .wf-ico { width: 38px; height: 38px; border-radius: 9px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 1.15rem; }
+  .wf-meta { min-width: 0; }
+  .wf-meta .wf-name { font-size: .82rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wf-meta .wf-type { font-size: .66rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .wf-port { position: absolute; width: 11px; height: 11px; border-radius: 50%;
+    background: var(--canvas); border: 2px solid var(--muted); top: 50%; transform: translateY(-50%); }
+  .wf-port.in  { left: -6px; }
+  .wf-port.out { right: -6px; }
+  .wf-count { position: absolute; top: -9px; right: -9px; min-width: 20px; height: 20px;
+    border-radius: 999px; background: var(--green); color: #04210f; font-size: .7rem; font-weight: 800;
+    display: flex; align-items: center; justify-content: center; padding: 0 5px;
+    box-shadow: 0 0 0 3px var(--canvas); animation: pulse 1.8s infinite; }
+  @keyframes pulse { 0%,100%{ box-shadow:0 0 0 3px var(--canvas), 0 0 0 0 rgba(34,197,94,.5);} 50%{ box-shadow:0 0 0 3px var(--canvas), 0 0 0 7px rgba(34,197,94,0);} }
+  .edge-label { font-size: 10px; fill: var(--muted); }
+
+  /* ─── INSPECTOR PANEL ─────────────────────────────────── */
+  #wf-inspector { position: absolute; top: 0; right: 0; bottom: 0; width: 300px;
+    background: var(--card); border-left: 1px solid var(--border); padding: 18px;
+    transform: translateX(100%); transition: transform .2s; overflow-y: auto; z-index: 5; }
+  #wf-inspector.open { transform: translateX(0); }
+  #wf-inspector .ins-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  #wf-inspector .ins-close { margin-left: auto; background: none; border: none; color: var(--muted);
+    font-size: 1.3rem; cursor: pointer; }
+  #wf-inspector h3 { font-size: 1rem; }
+  #wf-inspector .ins-type { font-size: .7rem; color: var(--muted); text-transform: uppercase; }
+  .ins-field { margin-bottom: 12px; }
+  .ins-field .k { font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 3px; }
+  .ins-field .v { font-size: .85rem; }
+  .ins-chip { display: inline-block; background: var(--border); padding: 2px 9px; border-radius: 5px;
+    font-size: .76rem; margin: 2px 4px 2px 0; }
+
+  /* ─── CARDS / TABLE / shared (from original) ──────────── */
+  .grid4 { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px,1fr)); gap: 14px; margin-bottom: 22px; }
+  .db-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+             padding: 16px; display: flex; flex-direction: column; gap: 7px; }
+  .db-card .db-title { font-size: .76rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+  .db-card .db-stat  { font-size: 1.5rem; font-weight: 700; }
+  .db-card .db-sub   { font-size: .76rem; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .ok { background: var(--green); } .fail { background: var(--red); }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: .85rem; }
+  th { color: var(--muted); font-weight: 600; font-size: .74rem; text-transform: uppercase; }
+  tr:hover td { background: rgba(79,142,247,.05); }
+
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .74rem; font-weight: 600; }
+  .b-pend  { background: rgba(245,158,11,.15); color: var(--yellow); }
+  .b-apro  { background: rgba(34,197,94,.15);  color: var(--green); }
+  .b-rech  { background: rgba(239,68,68,.15);  color: var(--red); }
+  .b-geren { background: rgba(79,142,247,.15);  color: var(--blue); }
+
+  .btn { padding: 7px 16px; border-radius: 6px; border: none; cursor: pointer;
+         font-size: .84rem; font-weight: 500; transition: .15s; }
+  .btn-primary  { background: var(--accent); color: #fff; }
+  .btn-primary:hover  { background: #f0563f; }
+  .btn-sm { padding: 4px 10px; font-size: .77rem; }
+
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-group label { font-size: .78rem; color: var(--muted); }
+  .form-group input, .form-group select, .form-group textarea {
+    background: var(--border); border: 1px solid #3a3d50; border-radius: 6px;
+    color: var(--text); padding: 9px 12px; font-size: .88rem; }
+  .form-group textarea { resize: vertical; min-height: 76px; }
+  .form-group.full { grid-column: 1/-1; }
+  .msg { padding: 12px 16px; border-radius: 8px; margin-top: 16px; font-size: .85rem; }
+  .msg-ok   { background: rgba(34,197,94,.12);  border: 1px solid rgba(34,197,94,.3);  color: var(--green); }
+  .msg-err  { background: rgba(239,68,68,.12);  border: 1px solid rgba(239,68,68,.3);  color: var(--red); }
+  .msg-info { background: rgba(79,142,247,.12); border: 1px solid rgba(79,142,247,.3); color: var(--blue); }
+
+  .timeline { display: flex; flex-direction: column; }
+  .t-item { display: flex; gap: 16px; position: relative; padding-bottom: 18px; }
+  .t-item::before { content:''; position:absolute; left:19px; top:36px; bottom:0; width:2px; background: var(--border); }
+  .t-item:last-child::before { display:none; }
+  .t-dot { width:40px; height:40px; border-radius:50%; background:var(--card);
+           border:2px solid var(--accent); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .t-body { flex:1; background:var(--card); border:1px solid var(--border); border-radius:8px; padding:11px 15px; }
+  .t-body .t-accion { font-weight:600; font-size:.88rem; }
+  .t-body .t-meta   { font-size:.76rem; color:var(--muted); margin-top:4px; }
+
+  .rel { display:inline-block; background:rgba(79,142,247,.15); color:var(--blue);
+    padding:2px 8px; border-radius:4px; font-size:.76rem; font-weight:600; }
+
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:100;
+                   display:flex; align-items:center; justify-content:center; }
+  .modal-box { background:var(--card); border:1px solid var(--border); border-radius:12px;
+               padding:26px; width:430px; max-width:90vw; }
+  .modal-box h3 { margin-bottom:18px; }
+  .modal-actions { display:flex; gap:12px; justify-content:flex-end; margin-top:20px; }
+  .hidden { display:none; }
+
+  h2.sec { margin-bottom: 18px; font-size: 1.05rem; }
+  .section-bar { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+  .loading { color: var(--muted); font-size:.88rem; padding:20px 0; }
+  .redis-key { font-family: monospace; font-size:.8rem; color:var(--blue); }
+</style>
+</head>
+<body>
+
+<!-- ═══ SIDEBAR ═══════════════════════════════════════════ -->
+<aside>
+  <div class="brand">
+    <div class="logo">🔄</div>
+    <div><h1>FlowOps<small>Workflow Engine</small></h1></div>
+  </div>
+  <div class="side-nav">
+    <button class="active" data-tab="workflow"><span class="ico">🧩</span> Workflow</button>
+    <button data-tab="dashboard"><span class="ico">📊</span> Dashboard</button>
+    <button data-tab="instancias"><span class="ico">▶️</span> Ejecuciones</button>
+    <button data-tab="nueva"><span class="ico">➕</span> Nueva Solicitud</button>
+    <button data-tab="auditoria"><span class="ico">📜</span> Auditoría</button>
+    <button data-tab="grafo"><span class="ico">🕸️</span> Grafo Neo4j</button>
+    <button data-tab="redis"><span class="ico">⚡</span> Redis</button>
+  </div>
+  <div class="side-foot">
+    <div>Solicitud de Vacaciones · v1</div>
+    <div class="dotline"><span class="dot ok"></span> tenant: empresa_01</div>
+  </div>
+</aside>
+
+<!-- ═══ STAGE ═════════════════════════════════════════════ -->
+<div class="stage">
+  <div class="topbar">
+    <h2 id="topbar-title">Solicitud de Vacaciones</h2>
+    <span class="pill">● activo</span>
+    <div class="spacer"></div>
+    <span class="clock" id="ts-header"></span>
+  </div>
+
+  <!-- ─── WORKFLOW (canvas) ─────────────────────────────── -->
+  <div id="tab-workflow" class="tab canvas-tab active">
+    <div class="wf-toolbar">
+      <button class="btn btn-sm" style="background:var(--green);color:#04210f;font-weight:700" onclick="openLaunch()">▶ Ejecutar workflow</button>
+      <button class="btn btn-sm btn-primary" onclick="loadWorkflow()">↺ Recargar</button>
+      <button class="zbtn" onclick="wfZoom(-0.1)">−</button>
+      <button class="zbtn" onclick="wfFit()">⊡</button>
+      <button class="zbtn" onclick="wfZoom(0.1)">+</button>
+      <div class="legend">
+        <span><span class="lg-line" style="background:var(--green)"></span> camino OK</span>
+        <span><span class="lg-line" style="background:var(--red)"></span> rechazo</span>
+        <span><span class="lg-line" style="background:var(--muted)"></span> automático</span>
+        <span><span class="dot" style="background:var(--green)"></span> instancias activas</span>
+      </div>
+    </div>
+    <div id="wf-viewport">
+      <div id="wf-toast"></div>
+      <div id="wf-world">
+        <svg id="wf-edges">
+          <defs>
+            <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="3"
+                    orient="auto" markerUnits="userSpaceOnUse">
+              <path d="M0,0 L7,3 L0,6 Z" fill="#475069"></path>
+            </marker>
+          </defs>
+          <circle id="wf-runner" r="8" fill="#ffd166" stroke="#fff" stroke-width="2"
+                  style="display:none; filter:drop-shadow(0 0 8px #ffd166)"></circle>
+        </svg>
+      </div>
+      <div id="wf-inspector">
+        <div class="ins-head">
+          <div class="wf-ico" id="ins-ico"></div>
+          <div><h3 id="ins-title"></h3><div class="ins-type" id="ins-type"></div></div>
+          <button class="ins-close" onclick="closeInspector()">×</button>
+        </div>
+        <div id="ins-body"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── DASHBOARD ─────────────────────────────────────── -->
+  <div id="tab-dashboard" class="tab"><div class="scroll"><div class="pad">
+    <h2 class="sec">Estado de los Motores de Datos</h2>
+    <div class="grid4" id="db-cards"><p class="loading">Verificando conexiones…</p></div>
+    <h2 class="sec" style="margin-top:8px">Distribución de Instancias</h2>
+    <div style="display:flex;gap:14px;flex-wrap:wrap" id="dist-cards"></div>
+  </div></div></div>
+
+  <!-- ─── INSTANCIAS ────────────────────────────────────── -->
+  <div id="tab-instancias" class="tab"><div class="scroll"><div class="pad">
+    <div class="section-bar">
+      <h2 class="sec" style="margin:0">Ejecuciones del Proceso</h2>
+      <button class="btn btn-primary btn-sm" onclick="loadInstancias()">↺ Actualizar</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table id="tbl-instancias">
+        <thead><tr>
+          <th>ID</th><th>Solicitante</th><th>Días</th>
+          <th>Nodo actual</th><th>Estado</th><th>Actualizado</th><th>Acciones</th>
+        </tr></thead>
+        <tbody id="tbody-instancias"><tr><td colspan="7" class="loading">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+  </div></div></div>
+
+  <!-- ─── NUEVA SOLICITUD ───────────────────────────────── -->
+  <div id="tab-nueva" class="tab"><div class="scroll"><div class="pad">
+    <h2 class="sec">Nueva Solicitud de Vacaciones</h2>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:26px;max-width:640px">
+      <div class="form-grid">
+        <div class="form-group"><label>Empleado ID *</label><input id="f-emp" type="text" placeholder="ej. emp_001"></div>
+        <div class="form-group"><label>Días solicitados *</label><input id="f-dias" type="number" min="1" max="30" value="5"></div>
+        <div class="form-group"><label>Fecha inicio *</label><input id="f-fi" type="date"></div>
+        <div class="form-group"><label>Fecha fin *</label><input id="f-ff" type="date"></div>
+        <div class="form-group full"><label>Motivo</label><textarea id="f-mot" placeholder="Vacaciones anuales…"></textarea></div>
+        <div class="form-group full"><button class="btn btn-primary" onclick="crearInstancia()">Enviar solicitud</button></div>
+      </div>
+      <div id="msg-nueva"></div>
+    </div>
+    <div style="margin-top:20px;max-width:640px">
+      <div style="background:rgba(255,109,90,.07);border:1px solid rgba(255,109,90,.2);border-radius:8px;padding:16px;font-size:.82rem;color:var(--muted)">
+        <strong style="color:var(--accent)">Flujo del proceso:</strong><br><br>
+        <code>start → formulario → validacion_saldo</code><br>
+        &nbsp;&nbsp;↳ días ≤ saldo → <code>aprobacion_gerencia</code><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↳ aprobado → <span style="color:var(--green)">notif_aprobacion → aprobada</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↳ rechazado → <span style="color:var(--red)">notif_rechazo → rechazada</span><br>
+        &nbsp;&nbsp;↳ días &gt; saldo → <span style="color:var(--red)">notif_rechazo → rechazada</span>
+      </div>
+    </div>
+  </div></div></div>
+
+  <!-- ─── AUDITORÍA ─────────────────────────────────────── -->
+  <div id="tab-auditoria" class="tab"><div class="scroll"><div class="pad">
+    <h2 class="sec">Auditoría — Cassandra</h2>
+    <div style="max-width:500px;margin-bottom:20px;display:flex;gap:12px">
+      <input id="aud-iid" type="text" placeholder="instance_id (ej. inst_vac_…)"
+             style="flex:1;background:var(--border);border:1px solid #3a3d50;border-radius:6px;color:var(--text);padding:9px 12px;font-size:.9rem">
+      <button class="btn btn-primary" onclick="loadEventos()">Ver eventos</button>
+    </div>
+    <div id="timeline-container"><p class="loading">Ingresá un instance_id para ver el log de eventos.</p></div>
+  </div></div></div>
+
+  <!-- ─── GRAFO ─────────────────────────────────────────── -->
+  <div id="tab-grafo" class="tab"><div class="scroll"><div class="pad">
+    <div class="section-bar">
+      <h2 class="sec" style="margin:0">Grafo de Relaciones — Neo4j</h2>
+      <button class="btn btn-primary btn-sm" onclick="loadGrafo()">↺ Actualizar</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table id="tbl-grafo">
+        <thead><tr>
+          <th>Empleado</th><th>Departamento</th><th>Relación</th>
+          <th>Instancia</th><th>Estado</th><th>Días</th><th>Fecha Inicio</th>
+        </tr></thead>
+        <tbody id="tbody-grafo"><tr><td colspan="7" class="loading">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+  </div></div></div>
+
+  <!-- ─── REDIS ─────────────────────────────────────────── -->
+  <div id="tab-redis" class="tab"><div class="scroll"><div class="pad">
+    <div class="section-bar">
+      <h2 class="sec" style="margin:0">Cache Redis — Estado de instancias</h2>
+      <button class="btn btn-primary btn-sm" onclick="loadRedis()">↺ Actualizar</button>
+    </div>
+    <div id="redis-container"><p class="loading">Cargando…</p></div>
+  </div></div></div>
+
+</div>
+
+<!-- ═══ MODAL LANZAR (desde canvas) ═══════════════════════ -->
+<div id="launch-overlay" class="modal-overlay hidden">
+  <div class="modal-box">
+    <h3>▶ Iniciar solicitud de vacaciones</h3>
+    <p style="font-size:.82rem;color:var(--muted);margin-bottom:16px">Se crea una instancia y se escribe en los 4 motores. Luego verás el recorrido animado en el workflow.</p>
+    <div class="form-grid">
+      <div class="form-group"><label>Empleado ID *</label><input id="l-emp" type="text" placeholder="emp_001"></div>
+      <div class="form-group"><label>Días *</label><input id="l-dias" type="number" min="1" max="30" value="5"></div>
+      <div class="form-group"><label>Fecha inicio *</label><input id="l-fi" type="date"></div>
+      <div class="form-group"><label>Fecha fin *</label><input id="l-ff" type="date"></div>
+      <div class="form-group full"><label>Motivo</label><input id="l-mot" type="text" placeholder="Vacaciones anuales"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeLaunch()" style="background:var(--border);color:var(--text)">Cancelar</button>
+      <button class="btn btn-sm" style="background:var(--green);color:#04210f;font-weight:700;padding:7px 16px" onclick="launchInstancia()">▶ Ejecutar</button>
+    </div>
+    <div id="launch-msg"></div>
+  </div>
+</div>
+
+<!-- ═══ MODAL AVANZAR ═════════════════════════════════════ -->
+<div id="modal-overlay" class="modal-overlay hidden">
+  <div class="modal-box">
+    <h3>Avanzar instancia</h3>
+    <p style="font-size:.85rem;color:var(--muted);margin-bottom:16px" id="modal-info"></p>
+    <div class="form-group"><label>Actor ID (quien decide)</label><input id="m-actor" type="text" placeholder="emp_003"></div>
+    <div class="form-group" style="margin-top:12px"><label>Decisión</label>
+      <select id="m-accion"><option value="approved">✅ Aprobar</option><option value="rejected">❌ Rechazar</option></select>
+    </div>
+    <div class="form-group" style="margin-top:12px"><label>Comentario (opcional)</label><input id="m-comment" type="text" placeholder="Todo en orden"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()" style="background:var(--border);color:var(--text)">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarAvanzar()">Confirmar</button>
+    </div>
+    <div id="modal-msg"></div>
+  </div>
+</div>
+
+<script>
+const BASE = '';
+let _currentIid = null;
+
+// ─── Node visual config (icon + color por node_id) ─────────
+const NODE_STYLE = {
+  start:               { icon:'▶',  color:'#22c55e' },
+  formulario:          { icon:'📝', color:'#4f8ef7' },
+  validacion_saldo:    { icon:'⚖️', color:'#f59e0b' },
+  aprobacion_gerencia: { icon:'🏢', color:'#a855f7' },
+  notif_aprobacion:    { icon:'✅', color:'#22c55e' },
+  notif_rechazo:       { icon:'❌', color:'#ef4444' },
+  end:                 { icon:'⏹',  color:'#6b7280' },
+};
+// Posiciones del canvas (coordenadas del "world")
+const NODE_POS = {
+  start:               { x:30,   y:200 },
+  formulario:          { x:250,  y:200 },
+  validacion_saldo:    { x:470,  y:200 },
+  aprobacion_gerencia: { x:710,  y:80  },
+  notif_aprobacion:    { x:940,  y:80  },
+  notif_rechazo:       { x:940,  y:330 },
+  end:                 { x:1170, y:200 },
+};
+const NODE_W = 172, NODE_H = 62;
+
+// ─── Tab switcher ──────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.side-nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  (btn || document.querySelector(`.side-nav button[data-tab="${name}"]`)).classList.add('active');
+  const titles = { workflow:'Solicitud de Vacaciones', dashboard:'Dashboard', instancias:'Ejecuciones',
+    nueva:'Nueva Solicitud', auditoria:'Auditoría', grafo:'Grafo Neo4j', redis:'Redis' };
+  document.getElementById('topbar-title').textContent = titles[name] || name;
+  if (name === 'workflow')   loadWorkflow();
+  if (name === 'dashboard')  loadDashboard();
+  if (name === 'instancias') loadInstancias();
+  if (name === 'grafo')      loadGrafo();
+  if (name === 'redis')      loadRedis();
+}
+document.querySelectorAll('.side-nav button').forEach(b =>
+  b.addEventListener('click', () => switchTab(b.dataset.tab, b)));
+
+// ─── Clock ────────────────────────────────────────────────
+setInterval(() => { document.getElementById('ts-header').textContent = new Date().toLocaleTimeString('es-AR'); }, 1000);
+
+// ─── Badge helper ─────────────────────────────────────────
+function badge(est) {
+  const m = { pendiente:['b-pend','Pendiente'], pendiente_gerencia:['b-geren','En Gerencia'],
+    aprobada:['b-apro','Aprobada'], rechazada:['b-rech','Rechazada'], finalizada:['b-apro','Finalizada'] };
+  const [cls, lbl] = m[est] || ['b-pend', est || '—'];
+  return `<span class="badge ${cls}">${lbl}</span>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  WORKFLOW CANVAS
+// ═══════════════════════════════════════════════════════════
+let _proceso = null;
+let _edgeMap = {};
+let _pendingByNode = {};
+
+function edgeColor(cond) {
+  if (!cond) return '#475069';
+  if (/insufic|rechaz/i.test(cond)) return '#ef4444';
+  if (/sufic|aprob/i.test(cond))    return '#22c55e';
+  return '#475069';
+}
+
+async function loadWorkflow() {
+  // 1. Definición del proceso (MongoDB)
+  if (!_proceso) {
+    _proceso = await fetch(`${BASE}/api/proceso`).then(r => r.json()).catch(() => null);
+  }
+  const world = document.getElementById('wf-world');
+  const svg   = document.getElementById('wf-edges');
+  // limpiar nodos previos (conservar el <svg> y el inspector)
+  world.querySelectorAll('.wf-node').forEach(n => n.remove());
+  svg.querySelectorAll('path.edge, text.edge-label').forEach(e => e.remove());
+
+  if (!_proceso || !_proceso.nodos) {
+    world.insertAdjacentHTML('beforeend',
+      '<div style="position:absolute;left:40px;top:40px;color:var(--muted)">No se pudo cargar /api/proceso. ¿Está la API arriba y cargado load_all?</div>');
+    return;
+  }
+
+  const nodos = _proceso.nodos;
+  const trans = _proceso.transiciones || [];
+  const posOf = id => NODE_POS[id] || { x:40, y:40 };
+  _edgeMap = {};
+
+  // 2. Dibujar aristas (transiciones)
+  trans.forEach(t => {
+    const a = posOf(t.desde), b = posOf(t.hasta);
+    const ox = a.x + NODE_W, oy = a.y + NODE_H/2;
+    const ix = b.x,          iy = b.y + NODE_H/2;
+    const dx = Math.max(60, Math.abs(ix - ox) * 0.5);
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('class','edge');
+    path.setAttribute('d', `M${ox},${oy} C${ox+dx},${oy} ${ix-dx},${iy} ${ix},${iy}`);
+    path.setAttribute('fill','none');
+    path.setAttribute('stroke', edgeColor(t.condicion));
+    path.setAttribute('stroke-width','2');
+    path.setAttribute('marker-end','url(#arrow)');
+    path.setAttribute('opacity','.85');
+    svg.appendChild(path);
+    _edgeMap[t.desde + '->' + t.hasta] = path;
+    if (t.condicion && t.condicion !== 'always') {
+      const lbl = document.createElementNS('http://www.w3.org/2000/svg','text');
+      lbl.setAttribute('class','edge-label');
+      lbl.setAttribute('x', (ox+ix)/2); lbl.setAttribute('y', (oy+iy)/2 - 6);
+      lbl.setAttribute('text-anchor','middle');
+      lbl.textContent = t.condicion;
+      svg.appendChild(lbl);
+    }
+  });
+
+  // 3. Dibujar nodos
+  nodos.forEach(n => {
+    const p = posOf(n.node_id);
+    const st = NODE_STYLE[n.node_id] || { icon:'⬤', color:'#6b7280' };
+    const el = document.createElement('div');
+    el.className = 'wf-node';
+    el.id = 'wfn-' + n.node_id;
+    el.style.left = p.x + 'px'; el.style.top = p.y + 'px';
+    el.innerHTML = `
+      <div class="wf-port in"></div>
+      <div class="wf-ico" style="background:${st.color}22;color:${st.color}">${st.icon}</div>
+      <div class="wf-meta">
+        <div class="wf-name">${n.nombre || n.node_id}</div>
+        <div class="wf-type">${n.tipo || ''}</div>
+      </div>
+      <div class="wf-port out"></div>`;
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      if (n.node_id === 'start') { openLaunch(); return; }
+      const pend = _pendingByNode[n.node_id] || [];
+      if (pend.length === 1) { openModal(pend[0], n.node_id, 'pendiente'); return; }
+      if (pend.length > 1)  { switchTab('instancias'); return; }
+      openInspector(n);
+    });
+    world.appendChild(el);
+  });
+
+  sizeWorld();
+  wfFit();
+
+  // 4. Overlay de estado en vivo (instancias por nodo)
+  overlayLiveState();
+}
+
+async function overlayLiveState() {
+  const inst = await fetch(`${BASE}/api/instancias`).then(r => r.json()).catch(() => []);
+  document.querySelectorAll('.wf-node').forEach(n => {
+    n.classList.remove('active','clickable'); n.querySelector('.wf-count')?.remove();
+  });
+  const counts = {};
+  _pendingByNode = {};
+  inst.forEach(i => {
+    const nodo = i.redis_nodo || i.nodo_actual;
+    const est  = i.redis_estado || i.estado;
+    if (!nodo) return;
+    counts[nodo] = (counts[nodo]||0)+1;
+    if (['pendiente','pendiente_gerencia'].includes(est)) (_pendingByNode[nodo] ||= []).push(i.instance_id);
+  });
+  for (const [nodo, c] of Object.entries(counts)) {
+    const el = document.getElementById('wfn-' + nodo);
+    if (!el) continue;
+    el.classList.add('active');
+    if (_pendingByNode[nodo]?.length) el.classList.add('clickable');
+    el.insertAdjacentHTML('beforeend', `<div class="wf-count">${c}</div>`);
+  }
+}
+
+function openInspector(n) {
+  document.querySelectorAll('.wf-node').forEach(x => x.classList.remove('sel'));
+  document.getElementById('wfn-' + n.node_id)?.classList.add('sel');
+  const st = NODE_STYLE[n.node_id] || { icon:'⬤', color:'#6b7280' };
+  const ico = document.getElementById('ins-ico');
+  ico.textContent = st.icon; ico.style.background = st.color + '22'; ico.style.color = st.color;
+  document.getElementById('ins-title').textContent = n.nombre || n.node_id;
+  document.getElementById('ins-type').textContent = n.tipo || '';
+  const skip = new Set(['node_id','nombre','tipo']);
+  let html = `<div class="ins-field"><div class="k">node_id</div><div class="v"><code>${n.node_id}</code></div></div>`;
+  for (const [k, v] of Object.entries(n)) {
+    if (skip.has(k)) continue;
+    let val = Array.isArray(v) ? v.map(x => `<span class="ins-chip">${x}</span>`).join('') : `<span class="v">${v}</span>`;
+    html += `<div class="ins-field"><div class="k">${k}</div><div>${val}</div></div>`;
+  }
+  // salidas
+  const outs = (_proceso.transiciones || []).filter(t => t.desde === n.node_id);
+  if (outs.length) html += `<div class="ins-field"><div class="k">transiciones de salida</div><div>` +
+    outs.map(o => `<span class="ins-chip">→ ${o.hasta} <small style="color:var(--muted)">(${o.condicion})</small></span>`).join('') + `</div></div>`;
+  document.getElementById('ins-body').innerHTML = html;
+  document.getElementById('wf-inspector').classList.add('open');
+}
+function closeInspector() {
+  document.getElementById('wf-inspector').classList.remove('open');
+  document.querySelectorAll('.wf-node').forEach(x => x.classList.remove('sel'));
+}
+
+// ─── Animación de ejecución ───────────────────────────────
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function toast(msg, ms = 2200) {
+  const t = document.getElementById('wf-toast');
+  t.innerHTML = msg; t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), ms);
+}
+function lightNode(id, firing) {
+  const el = document.getElementById('wfn-' + id);
+  if (!el) return;
+  el.classList.add(firing ? 'firing' : 'active');
+  if (firing) setTimeout(() => el.classList.remove('firing'), 650);
+}
+function animateAlong(pathEl, dur = 750) {
+  return new Promise(res => {
+    const dot = document.getElementById('wf-runner');
+    const len = pathEl.getTotalLength();
+    const t0 = performance.now();
+    (function frame(t) {
+      const p = Math.min(1, (t - t0) / dur);
+      const pt = pathEl.getPointAtLength(len * p);
+      dot.setAttribute('cx', pt.x); dot.setAttribute('cy', pt.y);
+      if (p < 1) requestAnimationFrame(frame); else res();
+    })(t0);
+  });
+}
+// Recorre una secuencia de node_ids animando el punto y encendiendo cada nodo
+async function runPath(ids) {
+  const dot = document.getElementById('wf-runner');
+  dot.style.display = '';
+  lightNode(ids[0], true);
+  await sleep(350);
+  for (let i = 0; i < ids.length - 1; i++) {
+    const edge = _edgeMap[ids[i] + '->' + ids[i + 1]];
+    if (edge) await animateAlong(edge);
+    lightNode(ids[i + 1], true);
+    await sleep(300);
+  }
+  dot.style.display = 'none';
+}
+
+// ─── Lanzar workflow desde el canvas ──────────────────────
+function openLaunch() {
+  document.getElementById('launch-msg').innerHTML = '';
+  const today = new Date().toISOString().slice(0,10);
+  const next  = new Date(Date.now() + 7*864e5).toISOString().slice(0,10);
+  if (!document.getElementById('l-fi').value) document.getElementById('l-fi').value = today;
+  if (!document.getElementById('l-ff').value) document.getElementById('l-ff').value = next;
+  document.getElementById('launch-overlay').classList.remove('hidden');
+}
+function closeLaunch() { document.getElementById('launch-overlay').classList.add('hidden'); }
+
+async function launchInstancia() {
+  const emp = document.getElementById('l-emp').value.trim();
+  const dias = parseInt(document.getElementById('l-dias').value);
+  const fi = document.getElementById('l-fi').value, ff = document.getElementById('l-ff').value;
+  const mot = document.getElementById('l-mot').value.trim() || 'Vacaciones anuales';
+  const msgEl = document.getElementById('launch-msg');
+  if (!emp || !fi || !ff || !dias) { msgEl.innerHTML = '<div class="msg msg-err">Completá empleado, días y fechas.</div>'; return; }
+  msgEl.innerHTML = '<div class="msg msg-info">Escribiendo en MongoDB, Redis, Cassandra y Neo4j…</div>';
+  try {
+    const res = await fetch(`${BASE}/api/instancias`, { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ empleado_id: emp, fecha_inicio: fi, fecha_fin: ff, dias_solicitados: dias, motivo: mot }) }).then(r => r.json());
+    if (!res.ok) { msgEl.innerHTML = `<div class="msg msg-err">Error: ${JSON.stringify(res)}</div>`; return; }
+    closeLaunch();
+    toast(`▶ Ejecutando <strong>${res.instance_id}</strong> · empleado ${emp}`);
+    // Camino al crear: validacion automática → queda en aprobacion_gerencia
+    await runPath(['start','formulario','validacion_saldo','aprobacion_gerencia']);
+    toast(`⏸ <strong>${res.instance_id}</strong> esperando aprobación de gerencia. Hacé clic en el nodo para decidir.`, 4000);
+    overlayLiveState();
+  } catch (e) { msgEl.innerHTML = `<div class="msg msg-err">${e}</div>`; }
+}
+
+// ─── Pan & Zoom ───────────────────────────────────────────
+let _wf = { x:0, y:0, k:1 };
+function applyWf() {
+  document.getElementById('wf-world').style.transform = `translate(${_wf.x}px,${_wf.y}px) scale(${_wf.k})`;
+}
+function sizeWorld() {
+  // dimensiona el SVG para que abarque todos los nodos
+  let maxX = 0, maxY = 0;
+  Object.values(NODE_POS).forEach(p => { maxX = Math.max(maxX, p.x + NODE_W); maxY = Math.max(maxY, p.y + NODE_H); });
+  const svg = document.getElementById('wf-edges');
+  svg.setAttribute('width', maxX + 60); svg.setAttribute('height', maxY + 60);
+}
+function wfZoom(d) { _wf.k = Math.min(2, Math.max(0.4, _wf.k + d)); applyWf(); }
+function wfFit() {
+  const vp = document.getElementById('wf-viewport');
+  let maxX = 0, maxY = 0, minX = 1e9, minY = 1e9;
+  Object.values(NODE_POS).forEach(p => {
+    minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x + NODE_W); maxY = Math.max(maxY, p.y + NODE_H);
+  });
+  const w = maxX - minX, h = maxY - minY;
+  const k = Math.min((vp.clientWidth - 80) / w, (vp.clientHeight - 80) / h, 1.4);
+  _wf.k = k;
+  _wf.x = (vp.clientWidth  - w * k) / 2 - minX * k;
+  _wf.y = (vp.clientHeight - h * k) / 2 - minY * k;
+  applyWf();
+}
+(function setupPanZoom() {
+  const vp = document.getElementById('wf-viewport');
+  let drag = null;
+  vp.addEventListener('mousedown', e => {
+    if (e.target.closest('.wf-node') || e.target.closest('#wf-inspector')) return;
+    drag = { sx:e.clientX, sy:e.clientY, ox:_wf.x, oy:_wf.y }; vp.classList.add('grabbing');
+  });
+  window.addEventListener('mousemove', e => {
+    if (!drag) return;
+    _wf.x = drag.ox + (e.clientX - drag.sx); _wf.y = drag.oy + (e.clientY - drag.sy); applyWf();
+  });
+  window.addEventListener('mouseup', () => { drag = null; vp.classList.remove('grabbing'); });
+  vp.addEventListener('wheel', e => {
+    e.preventDefault();
+    const r = vp.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    const k2 = Math.min(2, Math.max(0.4, _wf.k * (e.deltaY < 0 ? 1.1 : 0.9)));
+    // zoom hacia el cursor
+    _wf.x = mx - (mx - _wf.x) * (k2 / _wf.k);
+    _wf.y = my - (my - _wf.y) * (k2 / _wf.k);
+    _wf.k = k2; applyWf();
+  }, { passive:false });
+})();
+
+// ═══════════════════════════════════════════════════════════
+//  DASHBOARD
+// ═══════════════════════════════════════════════════════════
+async function loadDashboard() {
+  const data = await fetch(`${BASE}/api/status`).then(r => r.json()).catch(() => null);
+  if (!data) return;
+  const colors = { mongodb_procesos:'--mongo', mongodb_instancias:'--mongo', redis:'--redis-r', cassandra:'--cass', neo4j:'--neo4j' };
+  const icons  = { mongodb_procesos:'🍃', mongodb_instancias:'🍃', redis:'⚡', cassandra:'💎', neo4j:'🕸️' };
+  let html = '';
+  for (const [k, v] of Object.entries(data)) {
+    const col = colors[k] || '--accent';
+    const stat = v.ok ? (v.docs !== undefined ? v.docs + ' docs' : v.keys !== undefined ? v.keys + ' keys'
+         : v.nodos !== undefined ? v.nodos + ' nodos' : 'OK') : 'ERROR';
+    html += `<div class="db-card" style="border-top:3px solid var(${col})">
+        <div class="db-title">${icons[k] || ''} ${v.label}</div>
+        <div class="db-stat" style="color:var(${col})">${stat}</div>
+        <div class="db-sub"><span class="dot ${v.ok ? 'ok' : 'fail'}"></span>${v.ok ? 'Conectado' : v.error || 'Sin conexión'}</div>
+        ${v.relaciones !== undefined ? `<div class="db-sub">${v.relaciones} relaciones</div>` : ''}
+      </div>`;
+  }
+  document.getElementById('db-cards').innerHTML = html;
+  const inst = await fetch(`${BASE}/api/instancias`).then(r => r.json()).catch(() => []);
+  const counts = {};
+  inst.forEach(i => { const e = i.redis_estado || i.estado || 'desconocido'; counts[e] = (counts[e]||0)+1; });
+  let dhtml = '';
+  for (const [e, n] of Object.entries(counts))
+    dhtml += `<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px 20px;min-width:130px;text-align:center">
+      ${badge(e)}<div style="font-size:1.8rem;font-weight:700;margin-top:8px">${n}</div></div>`;
+  document.getElementById('dist-cards').innerHTML = dhtml || '<p class="loading">Sin instancias</p>';
+}
+
+// ═══════════════════════════════════════════════════════════
+//  INSTANCIAS
+// ═══════════════════════════════════════════════════════════
+async function loadInstancias() {
+  const tbody = document.getElementById('tbody-instancias');
+  tbody.innerHTML = '<tr><td colspan="7" class="loading">Cargando…</td></tr>';
+  const data = await fetch(`${BASE}/api/instancias`).then(r => r.json()).catch(() => []);
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="7" style="color:var(--muted);padding:20px">Sin instancias</td></tr>'; return; }
+  tbody.innerHTML = data.map(d => {
+    const nodo = d.redis_nodo || d.nodo_actual || '—';
+    const est  = d.redis_estado || d.estado || '—';
+    const upd  = d.redis_updated ? d.redis_updated.slice(0,19).replace('T',' ') : (d.updated_at ? d.updated_at.slice(0,19).replace('T',' ') : '—');
+    const dias = d.datos?.dias_solicitados ?? '—';
+    const canAdvance = ['pendiente','pendiente_gerencia'].includes(est);
+    return `<tr>
+      <td style="font-family:monospace;font-size:.77rem">${d.instance_id}</td>
+      <td>${d.solicitante_id || '—'}</td>
+      <td style="text-align:center">${dias}</td>
+      <td><code style="font-size:.77rem;color:var(--blue)">${nodo}</code></td>
+      <td>${badge(est)}</td>
+      <td style="font-size:.77rem;color:var(--muted)">${upd}</td>
+      <td style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-sm" onclick="verAuditoria('${d.instance_id}')" style="background:var(--border);color:var(--text)">📜 Log</button>
+        ${canAdvance ? `<button class="btn btn-sm btn-primary" onclick="openModal('${d.instance_id}','${nodo}','${est}')">▶ Avanzar</button>` : ''}
+      </td></tr>`;
+  }).join('');
+}
+function verAuditoria(iid) {
+  document.getElementById('aud-iid').value = iid;
+  switchTab('auditoria');
+  loadEventos();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  CREAR INSTANCIA
+// ═══════════════════════════════════════════════════════════
+async function crearInstancia() {
+  const emp = document.getElementById('f-emp').value.trim();
+  const dias = parseInt(document.getElementById('f-dias').value);
+  const fi = document.getElementById('f-fi').value, ff = document.getElementById('f-ff').value;
+  const mot = document.getElementById('f-mot').value.trim() || 'Vacaciones anuales';
+  const msgEl = document.getElementById('msg-nueva');
+  if (!emp || !fi || !ff || !dias) { msgEl.innerHTML = '<div class="msg msg-err">Completá todos los campos requeridos.</div>'; return; }
+  msgEl.innerHTML = '<div class="msg msg-info">Enviando a los 4 motores de datos…</div>';
+  try {
+    const res = await fetch(`${BASE}/api/instancias`, { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ empleado_id: emp, fecha_inicio: fi, fecha_fin: ff, dias_solicitados: dias, motivo: mot }) }).then(r => r.json());
+    if (res.ok) {
+      let warns = res.warnings?.length ? `<br><small style="color:var(--yellow)">Warnings: ${res.warnings.join('; ')}</small>` : '';
+      msgEl.innerHTML = `<div class="msg msg-ok">✅ Solicitud creada: <strong>${res.instance_id}</strong>${warns}</div>`;
+    } else { msgEl.innerHTML = `<div class="msg msg-err">Error: ${JSON.stringify(res)}</div>`; }
+  } catch (e) { msgEl.innerHTML = `<div class="msg msg-err">${e}</div>`; }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  AUDITORÍA
+// ═══════════════════════════════════════════════════════════
+const nodeIcon = { start:'🟢', formulario:'📝', validacion_saldo:'⚖️', aprobacion_gerencia:'🏢',
+  notif_aprobacion:'✅', notif_rechazo:'❌', end:'🔚' };
+async function loadEventos() {
+  const iid = document.getElementById('aud-iid').value.trim();
+  if (!iid) return;
+  const cont = document.getElementById('timeline-container');
+  cont.innerHTML = '<p class="loading">Cargando eventos de Cassandra…</p>';
+  try {
+    const data = await fetch(`${BASE}/api/instancias/${iid}/eventos`).then(r => r.json());
+    if (!data.length) { cont.innerHTML = '<p class="loading">Sin eventos para esta instancia.</p>'; return; }
+    cont.innerHTML = '<div class="timeline">' + data.map(ev => {
+      const ico = nodeIcon[ev.nodo] || '⬤';
+      const ts = ev.timestamp ? ev.timestamp.slice(0,19).replace('T',' ') : '—';
+      return `<div class="t-item"><div class="t-dot">${ico}</div>
+        <div class="t-body"><div class="t-accion">${ev.nodo} → <span style="color:var(--muted)">${ev.accion}</span></div>
+          <div class="t-meta">${ts}${ev.actor_id ? ' · Actor: <strong>'+ev.actor_id+'</strong>' : ''}${ev.detalle ? ' · '+ev.detalle : ''}</div>
+        </div></div>`;
+    }).join('') + '</div>';
+  } catch (e) { cont.innerHTML = `<p class="loading">Error: ${e}</p>`; }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  GRAFO
+// ═══════════════════════════════════════════════════════════
+async function loadGrafo() {
+  const tbody = document.getElementById('tbody-grafo');
+  tbody.innerHTML = '<tr><td colspan="7" class="loading">Consultando Neo4j…</td></tr>';
+  try {
+    const data = await fetch(`${BASE}/api/grafo`).then(r => r.json());
+    if (!data.length) { tbody.innerHTML = '<tr><td colspan="7" style="color:var(--muted);padding:20px">Sin datos en el grafo.</td></tr>'; return; }
+    tbody.innerHTML = data.map(r => `<tr>
+      <td>${r.empleado || '—'}</td><td>${r.depto || '—'}</td>
+      <td><span class="rel">${r.relacion}</span></td>
+      <td style="font-family:monospace;font-size:.75rem">${r.instancia}</td>
+      <td>${badge(r.estado)}</td><td style="text-align:center">${r.dias ?? '—'}</td><td>${r.fecha_inicio || '—'}</td>
+    </tr>`).join('');
+  } catch (e) { tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);padding:20px">Error: ${e}</td></tr>`; }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  REDIS
+// ═══════════════════════════════════════════════════════════
+async function loadRedis() {
+  const cont = document.getElementById('redis-container');
+  cont.innerHTML = '<p class="loading">Leyendo Redis…</p>';
+  try {
+    const data = await fetch(`${BASE}/api/redis`).then(r => r.json());
+    const keys = Object.keys(data);
+    if (!keys.length) { cont.innerHTML = '<p class="loading">Sin claves en Redis.</p>'; return; }
+    cont.innerHTML = `<table><thead><tr><th>Key</th><th>estado</th><th>nodo_actual</th><th>updated_at</th></tr></thead><tbody>` +
+      keys.map(k => { const v = data[k];
+        return `<tr><td><span class="redis-key">${k}</span></td>
+          <td>${v.estado ? badge(v.estado) : (v.valor !== undefined ? '<code>'+v.valor+'</code>' : '—')}</td>
+          <td><code style="font-size:.77rem;color:var(--blue)">${v.nodo_actual || '—'}</code></td>
+          <td style="font-size:.77rem;color:var(--muted)">${v.updated_at || '—'}</td></tr>`;
+      }).join('') + '</tbody></table>';
+  } catch (e) { cont.innerHTML = `<p style="color:var(--red)">Error: ${e}</p>`; }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  MODAL AVANZAR
+// ═══════════════════════════════════════════════════════════
+function openModal(iid, nodo, est) {
+  _currentIid = iid;
+  document.getElementById('modal-info').textContent = `Instancia: ${iid} | Nodo: ${nodo} | Estado: ${est}`;
+  document.getElementById('modal-msg').innerHTML = '';
+  document.getElementById('modal-overlay').classList.remove('hidden');
+}
+function closeModal() { document.getElementById('modal-overlay').classList.add('hidden'); }
+async function confirmarAvanzar() {
+  const actor = document.getElementById('m-actor').value.trim();
+  const accion = document.getElementById('m-accion').value;
+  const comment = document.getElementById('m-comment').value.trim();
+  const msgEl = document.getElementById('modal-msg');
+  if (!actor) { msgEl.innerHTML = '<div class="msg msg-err">Ingresá el Actor ID.</div>'; return; }
+  try {
+    const res = await fetch(`${BASE}/api/instancias/${_currentIid}/avanzar`, { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ actor_id: actor, accion, comentario: comment }) }).then(r => r.json());
+    if (res.ok) {
+      const onCanvas = document.getElementById('tab-workflow').classList.contains('active');
+      if (onCanvas) {
+        closeModal();
+        const ok = accion === 'approved';
+        toast(`${ok ? '✅ Aprobada' : '❌ Rechazada'} · ${res.nodo_anterior} → ${res.nodo_actual} → end`, 3500);
+        await runPath([res.nodo_anterior, res.nodo_actual, 'end']);
+        overlayLiveState();
+      } else {
+        msgEl.innerHTML = `<div class="msg msg-ok">✅ ${res.nodo_anterior} → ${res.nodo_actual} | ${res.estado}</div>`;
+        setTimeout(() => { closeModal(); loadInstancias(); }, 1200);
+      }
+    } else { msgEl.innerHTML = `<div class="msg msg-err">Error: ${JSON.stringify(res)}</div>`; }
+  } catch (e) { msgEl.innerHTML = `<div class="msg msg-err">${e}</div>`; }
+}
+
+// ─── Init ─────────────────────────────────────────────────
+loadWorkflow();
+const today = new Date().toISOString().slice(0,10);
+const next  = new Date(Date.now() + 7*864e5).toISOString().slice(0,10);
+document.getElementById('f-fi').value = today;
+document.getElementById('f-ff').value = next;
+window.addEventListener('resize', () => { if (document.getElementById('tab-workflow').classList.contains('active')) wfFit(); });
+</script>
+</body>
+</html>

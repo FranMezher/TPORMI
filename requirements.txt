@@ -1,0 +1,7 @@
+fastapi==0.110.0
+uvicorn==0.29.0
+pymongo==4.7.2
+redis==5.0.4
+cassandra-driver==3.29.1
+neo4j==5.19.0
+pydantic==2.7.1
