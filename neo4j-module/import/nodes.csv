@@ -1,0 +1,7 @@
+empleado_id,nombre,departamento,saldo_dias,rol
+emp_001,Juan Pérez,Tecnología,15,empleado
+emp_002,María González,Recursos Humanos,20,rrhh
+emp_003,Carlos López,Dirección,25,gerencia
+emp_004,Ana Martínez,Tecnología,10,empleado
+emp_005,Luis Rodríguez,Marketing,18,empleado
+emp_006,Sofía Fernández,Recursos Humanos,22,rrhh

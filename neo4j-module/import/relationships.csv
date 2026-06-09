@@ -1,0 +1,6 @@
+from_empleado,to_empleado,tipo,desde
+emp_001,emp_002,REPORTA_A,2024-01-01
+emp_004,emp_002,REPORTA_A,2024-01-01
+emp_005,emp_006,REPORTA_A,2024-01-01
+emp_002,emp_003,REPORTA_A,2023-06-01
+emp_006,emp_003,REPORTA_A,2023-06-01

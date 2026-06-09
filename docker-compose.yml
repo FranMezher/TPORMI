@@ -82,12 +82,29 @@ services:
     networks:
       - flowops-net
 
+  # ----------------------------
+  # grafo de flujo y dependencias
+  # ----------------------------
+  grafo:
+    image: neo4j:5-community
+    container_name: flowops-grafo
+    ports:
+      - "7474:7474"   # Neo4j Browser
+      - "7687:7687"   # Bolt protocol
+    environment:
+      NEO4J_AUTH: neo4j/flowops123
+    volumes:
+      - grafo:/data
+    networks:
+      - flowops-net
+
 volumes:
   procesos:
   instancias:
   auditoria:
   cache:
   busqueda:
+  grafo:
 
 networks:
   flowops-net:
