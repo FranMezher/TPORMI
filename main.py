@@ -374,11 +374,15 @@ def core_avanzar(tenant_id: str, iid: str, actor_id: str, accion: str, comentari
     now   = datetime.utcnow()
     warns = []
 
+    # El nodo de notificación es AUTOMÁTICO → la instancia encadena hasta 'end'
+    notif_node = nodo_sig if nodo_sig in ("notif_aprobacion", "notif_rechazo") else None
+    final_nodo = "end" if notif_node else nodo_sig
+
     # 1. MongoDB
     try:
         instancias_col().update_one(
             {"instance_id": iid},
-            {"$set": {"estado": nuevo_estado, "nodo_actual": nodo_sig, "updated_at": now}})
+            {"$set": {"estado": nuevo_estado, "nodo_actual": final_nodo, "updated_at": now}})
     except Exception as e:
         raise HTTPException(500, f"MongoDB: {e}")
 
@@ -392,19 +396,21 @@ def core_avanzar(tenant_id: str, iid: str, actor_id: str, accion: str, comentari
     # 2. Redis
     try:
         rdb().hset(redis_key(iid), mapping={
-            "estado": nuevo_estado, "nodo_actual": nodo_sig, "updated_at": now.isoformat()})
+            "estado": nuevo_estado, "nodo_actual": final_nodo, "updated_at": now.isoformat()})
     except Exception as e:
         warns.append(f"Redis: {e}")
 
-    # 3. Cassandra
+    # 3. Cassandra: decisión → notificación (automática) → fin
     try:
         cass_event(tenant_id, iid, now, nodo_actual, actor_id, accion, comentario or "")
-        if nodo_sig in ("notif_aprobacion", "notif_rechazo"):
+        if notif_node:
             dest = [doc.get("solicitante_id", "")]
-            if nodo_sig == "notif_aprobacion":
+            if notif_node == "notif_aprobacion":
                 dest.append("emp_002")  # RRHH también recibe aprobación
-            cass_event(tenant_id, iid, now + timedelta(seconds=1), nodo_sig, "sistema",
+            cass_event(tenant_id, iid, now + timedelta(seconds=1), notif_node, "sistema",
                        "notificacion_enviada", json.dumps({"destinatarios": dest}))
+            cass_event(tenant_id, iid, now + timedelta(seconds=2), "end", None,
+                       "proceso_finalizado", None)
     except Exception as e:
         warns.append(f"Cassandra: {e}")
 
@@ -419,8 +425,8 @@ def core_avanzar(tenant_id: str, iid: str, actor_id: str, accion: str, comentari
     except Exception as e:
         warns.append(f"Neo4j: {e}")
 
-    return {"ok": True, "nodo_anterior": nodo_actual, "nodo_actual": nodo_sig,
-            "estado": nuevo_estado, "warnings": warns}
+    return {"ok": True, "nodo_anterior": nodo_actual, "nodo_actual": final_nodo,
+            "notif_node": notif_node, "estado": nuevo_estado, "warnings": warns}
 
 
 def core_completar_tarea(tenant_id: str, task_id: str, actor_id: str, accion: str, comentario: str = "") -> dict:

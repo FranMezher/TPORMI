@@ -23,6 +23,23 @@ services:
       - flowops-net
 
   # ----------------------------
+  # admin web de MongoDB
+  # ----------------------------
+  mongo-express:
+    image: mongo-express:1.0.2
+    container_name: flowops-mongo-express
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://admin:flowops123@flowops-instancias:27017/?authSource=admin
+      ME_CONFIG_BASICAUTH: "false"
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: "true"
+    depends_on:
+      - instancias
+    networks:
+      - flowops-net
+
+  # ----------------------------
   # eventos y auditoria
   # ----------------------------
   auditoria:
