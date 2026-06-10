@@ -23,7 +23,24 @@ Ir a **http://localhost:8000** en el navegador.
 
 ---
 
-## Endpoints disponibles
+## API multi-tenant (rutas del spec del TPO)
+
+Documentación interactiva (Swagger) autogenerada en **http://localhost:8000/docs**.
+
+| Método | URL | Descripción |
+|--------|-----|-------------|
+| POST | `/api/{tenant_id}/processes` | Crear definición de proceso |
+| GET | `/api/{tenant_id}/processes` | Listar definiciones |
+| GET | `/api/{tenant_id}/processes/{process_id}` | Consultar definición |
+| POST | `/api/{tenant_id}/processes/{process_id}/instances` | Iniciar instancia |
+| GET | `/api/{tenant_id}/instances/{instance_id}` | Estado de una instancia |
+| GET | `/api/{tenant_id}/tasks?status=pending` | Tareas humanas |
+| POST | `/api/{tenant_id}/tasks/{task_id}/complete` | Completar tarea y avanzar |
+| GET | `/api/{tenant_id}/instances/{instance_id}/events` | Auditoría (Cassandra) |
+
+> `tenant_id` por defecto: `empresa_01`. Completar una tarea ya completada devuelve **HTTP 409** (idempotencia).
+
+## Endpoints clásicos (usados por el frontend)
 
 | Método | URL | Descripción |
 |--------|-----|-------------|

@@ -162,6 +162,7 @@ docker exec -i flowops-procesos mongosh \
 db = db.getSiblingDB('flowops_procesos');
 db.procesos.drop();
 db.procesos.insertOne({
+  tenant_id:   "empresa_01",
   proceso_id:  "proc_vacaciones_v1",
   nombre:      "Solicitud de Vacaciones",
   version:     1,

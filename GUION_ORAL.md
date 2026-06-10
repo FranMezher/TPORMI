@@ -61,6 +61,14 @@
 
 ---
 
+## 6.bis Features que cierran el spec (mencionalas si preguntan por la API)
+- **Multi-tenant real**: `tenant_id` en todos los documentos + rutas `/api/{tenant_id}/...`.
+- **Crear proceso por API**: `POST /api/{tenant}/processes` (no solo por script) → mostralo en **Swagger `/docs`**.
+- **Entidad Task explícita**: cada tarea humana es un documento (`task_id`, `assigned_role`, `status`) → `POST /api/{tenant}/tasks/{id}/complete`.
+- **Idempotencia / estado inválido**: completar una tarea dos veces o avanzar una instancia finalizada → **HTTP 409**. (Responde la pregunta CAP de "completar tarea dos veces".)
+- **Compatibilidad**: las rutas viejas siguen funcionando para el frontend (delegan en la misma lógica core).
+- Documentos del entregable en **`docs/`**: Plan de Sistemas, Modelo de Datos, Arquitectura.
+
 ## 7. Glosario express (por si te traban)
 - **BPM** = Business Process Management.
 - **Event sourcing** = guardar cada evento, no solo el estado final.
