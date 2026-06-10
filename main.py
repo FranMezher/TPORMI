@@ -15,8 +15,7 @@ Flujo del proceso (load_all):
       saldo_insuf.   →                       notif_rechazo    → end
 
 Contenedores Docker (docker-compose / load_all):
-  flowops-procesos   → MongoDB    → localhost:27017
-  flowops-instancias → MongoDB    → localhost:27018
+  flowops-instancias → MongoDB    → localhost:27018  (bases: flowops_procesos + flowops_instancias)
   flowops-cache      → Redis      → localhost:6379
   flowops-auditoria  → Cassandra  → localhost:9042   keyspace: flowops
   flowops-grafo      → Neo4j      → bolt://localhost:7687
@@ -36,8 +35,10 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
 
 # ─── Config ──────────────────────────────────────────────────
+# Una sola instancia MongoDB en 27018 aloja ambas bases lógicas
+# (flowops_procesos y flowops_instancias). Se mantienen dos URLs por claridad.
 MONGO_PROC_URL = os.getenv("MONGO_PROC_URL",
-    "mongodb://admin:flowops123@localhost:27017/?authSource=admin")
+    "mongodb://admin:flowops123@localhost:27018/?authSource=admin")
 MONGO_INST_URL = os.getenv("MONGO_INST_URL",
     "mongodb://admin:flowops123@localhost:27018/?authSource=admin")
 REDIS_HOST     = os.getenv("REDIS_HOST",     "localhost")
@@ -93,6 +94,53 @@ def tareas_col():     return mongo_inst()["flowops_instancias"]["tareas"]
 # Proceso estándar que toda empresa tiene disponible
 STD_PROCESS_ID = "proc_vacaciones_v1"
 
+# Campos del formulario (data-driven): el frontend los renderiza desde la definición.
+# Agregar un campo acá (o vía la API/Compass) hace que aparezca en el form sin tocar código.
+STD_FORM_FIELDS = [
+    {"name": "empleado_id",      "label": "Empleado ID",      "type": "text",     "required": True,  "placeholder": "emp_001"},
+    {"name": "fecha_inicio",     "label": "Fecha inicio",     "type": "date",     "required": True},
+    {"name": "fecha_fin",        "label": "Fecha fin",        "type": "date",     "required": True},
+    {"name": "dias_solicitados", "label": "Días solicitados (hábiles)", "type": "calculated", "required": True},
+    {"name": "motivo",           "label": "Motivo",           "type": "textarea", "required": False, "placeholder": "Vacaciones anuales"},
+]
+
+def dias_habiles(fi, ff):
+    """Días hábiles (lun–vie) entre dos fechas ISO, inclusive. None si inválidas."""
+    from datetime import date
+    try:
+        d0 = date.fromisoformat(str(fi)[:10])
+        d1 = date.fromisoformat(str(ff)[:10])
+    except Exception:
+        return None
+    if d1 < d0:
+        return 0
+    n, cur = 0, d0
+    while cur <= d1:
+        if cur.weekday() < 5:   # 0=lun … 4=vie
+            n += 1
+        cur += timedelta(days=1)
+    return n
+
+def _extract_solicitud(body: Dict[str, Any]):
+    """Acepta {empleado_id, datos:{...}} o un objeto plano; devuelve (empleado_id, datos)."""
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Cuerpo inválido")
+    if isinstance(body.get("datos"), dict):
+        datos = dict(body["datos"])
+        empleado_id = body.get("empleado_id") or datos.get("empleado_id")
+    else:
+        empleado_id = body.get("empleado_id")
+        datos = {k: v for k, v in body.items() if k != "empleado_id"}
+    datos.pop("empleado_id", None)
+    if not empleado_id:
+        raise HTTPException(400, "Falta 'empleado_id'")
+    # dias_solicitados es CALCULADO: se deriva de las fechas, no se confía en el cliente
+    if datos.get("fecha_inicio") and datos.get("fecha_fin"):
+        d = dias_habiles(datos["fecha_inicio"], datos["fecha_fin"])
+        if d is not None:
+            datos["dias_solicitados"] = d
+    return empleado_id, datos
+
 def provision_process(tenant_id: str):
     """Asegura que un tenant tenga su copia del proceso estándar (clona la plantilla)."""
     if procesos_col().count_documents({"tenant_id": tenant_id, "proceso_id": STD_PROCESS_ID}):
@@ -104,6 +152,26 @@ def provision_process(tenant_id: str):
     doc = {k: v for k, v in template.items() if k != "_id"}
     doc["tenant_id"] = tenant_id
     procesos_col().insert_one(doc)
+
+def ensure_form_fields():
+    """Asegura que el nodo 'formulario' de cada proceso tenga campos tipados (data-driven)."""
+    for p in procesos_col().find({}):
+        nodos = p.get("nodos", [])
+        changed = False
+        for n in nodos:
+            if n.get("node_id") == "formulario" or n.get("tipo") == "form":
+                campos = n.get("campos")
+                if not campos or isinstance(campos[0], str):   # vacío o formato viejo (strings)
+                    n["campos"] = STD_FORM_FIELDS
+                    changed = True
+                else:
+                    for c in n["campos"]:   # dias_solicitados → campo calculado
+                        if c.get("name") == "dias_solicitados" and c.get("type") != "calculated":
+                            c["type"] = "calculated"
+                            c["label"] = "Días solicitados (hábiles)"
+                            changed = True
+        if changed:
+            procesos_col().update_one({"_id": p["_id"]}, {"$set": {"nodos": nodos}})
 
 # ─── Helpers ─────────────────────────────────────────────────
 def clean(obj):
@@ -216,8 +284,9 @@ class ProcessDefinition(BaseModel):
 # ═══════════════════════════════════════════════════════════════
 #  LÓGICA CORE (tenant-aware) — reutilizada por ambas familias de rutas
 # ═══════════════════════════════════════════════════════════════
-def core_crear_instancia(tenant_id: str, body: NuevaSolicitud,
+def core_crear_instancia(tenant_id: str, empleado_id: str, datos: Dict[str, Any],
                          process_id: str = "proc_vacaciones_v1") -> dict:
+    datos = dict(datos or {})
     now   = datetime.utcnow()
     iid   = "inst_vac_" + now.strftime("%Y%m%d_%H%M%S")
     warns = []
@@ -228,15 +297,10 @@ def core_crear_instancia(tenant_id: str, body: NuevaSolicitud,
             "tenant_id":      tenant_id,
             "instance_id":    iid,
             "proceso_id":     process_id,
-            "solicitante_id": body.empleado_id,
+            "solicitante_id": empleado_id,
             "estado":         "pendiente",
             "nodo_actual":    "aprobacion_gerencia",  # tras validacion_saldo automática
-            "datos": {
-                "fecha_inicio":     body.fecha_inicio,
-                "fecha_fin":        body.fecha_fin,
-                "dias_solicitados": body.dias_solicitados,
-                "motivo":           body.motivo
-            },
+            "datos":          datos,                  # flexible: lo que defina el formulario
             "created_at": now, "updated_at": now
         })
     except Exception as e:
@@ -261,12 +325,11 @@ def core_crear_instancia(tenant_id: str, body: NuevaSolicitud,
 
     # 3. Cassandra ────────────────────────────────────────────
     try:
-        cass_event(tenant_id, iid, now,                        "start",               None,             "inicio_proceso",     None)
-        cass_event(tenant_id, iid, now + timedelta(seconds=1), "formulario",          body.empleado_id, "formulario_enviado",
-                   json.dumps({"fecha_inicio": body.fecha_inicio, "fecha_fin": body.fecha_fin,
-                                "dias_solicitados": body.dias_solicitados, "motivo": body.motivo}))
-        cass_event(tenant_id, iid, now + timedelta(seconds=2), "validacion_saldo",    "sistema",        "saldo_suficiente",
-                   json.dumps({"dias_solicitados": body.dias_solicitados}))
+        cass_event(tenant_id, iid, now,                        "start",            None,        "inicio_proceso",     None)
+        cass_event(tenant_id, iid, now + timedelta(seconds=1), "formulario",       empleado_id, "formulario_enviado",
+                   json.dumps(datos))
+        cass_event(tenant_id, iid, now + timedelta(seconds=2), "validacion_saldo", "sistema",   "saldo_suficiente",
+                   json.dumps({"dias_solicitados": datos.get("dias_solicitados")}))
         cass_event(tenant_id, iid, now + timedelta(seconds=3), "aprobacion_gerencia", "sistema",        "tarea_asignada",
                    json.dumps({"asignado_a_rol": "gerencia", "task_id": task_id}))
     except Exception as e:
@@ -283,8 +346,9 @@ def core_crear_instancia(tenant_id: str, body: NuevaSolicitud,
                 WITH s
                 MATCH (e:Empleado {empleado_id: $eid})
                 MERGE (e)-[:SOLICITA {timestamp: $ts}]->(s)
-            """, iid=iid, dias=body.dias_solicitados, fi=body.fecha_inicio, ff=body.fecha_fin,
-                motivo=body.motivo, ts=now.isoformat(), eid=body.empleado_id, tenant=tenant_id)
+            """, iid=iid, dias=datos.get("dias_solicitados"), fi=datos.get("fecha_inicio"),
+                ff=datos.get("fecha_fin"), motivo=datos.get("motivo"),
+                ts=now.isoformat(), eid=empleado_id, tenant=tenant_id)
     except Exception as e:
         warns.append(f"Neo4j: {e}")
 
@@ -423,6 +487,8 @@ def seed_and_migrate():
         # Cada empresa tiene aprovisionado el proceso estándar "Solicitud de Vacaciones"
         for t in tcol.distinct("tenant_id"):
             provision_process(t)
+        # Form data-driven: asegurar campos tipados en el nodo formulario de cada proceso
+        ensure_form_fields()
         # Crear tareas pendientes para instancias detenidas en un nodo task
         tnodes = task_nodes(DEFAULT_TENANT)
         for d in col.find({"estado": {"$in": ["pendiente", "pendiente_gerencia"]}}):
@@ -482,8 +548,9 @@ def get_proceso_tenant(tenant_id: str, process_id: str):
         raise HTTPException(500, str(e))
 
 @app.post("/api/{tenant_id}/processes/{process_id}/instances", status_code=201)
-def crear_instancia_tenant(tenant_id: str, process_id: str, body: NuevaSolicitud):
-    return core_crear_instancia(tenant_id, body, process_id)
+def crear_instancia_tenant(tenant_id: str, process_id: str, body: Dict[str, Any] = Body(...)):
+    emp, datos = _extract_solicitud(body)
+    return core_crear_instancia(tenant_id, emp, datos, process_id)
 
 @app.get("/api/{tenant_id}/instances/{instance_id}")
 def get_instance_tenant(tenant_id: str, instance_id: str):
@@ -650,8 +717,9 @@ def get_eventos(iid: str, tenant: str = DEFAULT_TENANT):
         raise HTTPException(500, str(e))
 
 @app.post("/api/instancias", status_code=201)
-def crear_instancia(body: NuevaSolicitud, tenant: str = DEFAULT_TENANT):
-    return core_crear_instancia(tenant, body)
+def crear_instancia(body: Dict[str, Any] = Body(...), tenant: str = DEFAULT_TENANT):
+    emp, datos = _extract_solicitud(body)
+    return core_crear_instancia(tenant, emp, datos)
 
 @app.post("/api/instancias/{iid}/avanzar")
 def avanzar(iid: str, body: AccionInstancia, tenant: str = DEFAULT_TENANT):

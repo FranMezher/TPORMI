@@ -22,13 +22,13 @@ Consolida la **arquitectura políglota** definida progresivamente en las Activid
                           └──┬─────┬───────┬───────┬─────┘
             ┌────────────────┘     │       │       └────────────────┐
             ▼                      ▼       ▼                        ▼
-   ┌─────────────────┐   ┌─────────────────┐   ┌──────────────┐   ┌──────────────┐
-   │ MongoDB :27017  │   │ MongoDB :27018  │   │  Redis :6379 │   │ Cassandra    │
-   │ flowops_procesos│   │flowops_instancias│  │  caché +     │   │ :9042        │
-   │  · procesos     │   │  · instancias   │   │  saldos      │   │ auditoría    │
-   │ (definiciones)  │   │  · tareas       │   │ (TTL)        │   │ (append-only)│
-   └─────────────────┘   └─────────────────┘   └──────────────┘   └──────────────┘
-        ~5ms                   ~5ms               <1ms                ~10ms
+   ┌───────────────────────────────────────┐   ┌──────────────┐   ┌──────────────┐
+   │        MongoDB :27018 (1 instancia)    │   │  Redis :6379 │   │ Cassandra    │
+   │  flowops_procesos    flowops_instancias│   │  caché +     │   │ :9042        │
+   │   · procesos          · instancias     │   │  saldos      │   │ auditoría    │
+   │   · tenants           · tareas         │   │ (TTL)        │   │ (append-only)│
+   └───────────────────────────────────────┘   └──────────────┘   └──────────────┘
+        ~5ms (dos bases lógicas)                   <1ms                ~10ms
                                          │
                                          ▼
                                 ┌──────────────────┐     ┌──────────────────┐
@@ -84,5 +84,5 @@ Si un motor **secundario** (Redis/Cassandra/Neo4j) falla, la operación continú
 | API | FastAPI 0.110 + Uvicorn |
 | Drivers | pymongo, redis-py, cassandra-driver, neo4j |
 | Frontend | HTML/CSS/JS vanilla (canvas SVG, sin frameworks) |
-| Orquestación | Docker Compose (servicios: 2× MongoDB, Redis, Cassandra, Neo4j, Elasticsearch) |
+| Orquestación | Docker Compose (servicios: MongoDB —1 instancia en :27018 con 2 bases lógicas—, Redis, Cassandra, Neo4j, Elasticsearch) |
 | Lenguaje | Python 3.10+ |

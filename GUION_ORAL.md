@@ -68,6 +68,15 @@
 - **Idempotencia / estado inválido**: completar una tarea dos veces o avanzar una instancia finalizada → **HTTP 409**. (Responde la pregunta CAP de "completar tarea dos veces".)
 - **Compatibilidad**: las rutas viejas siguen funcionando para el frontend (delegan en la misma lógica core).
 - Documentos del entregable en **`docs/`**: Plan de Sistemas, Modelo de Datos, Arquitectura.
+- **Formulario data-driven (¡demo fuerte!)**: los campos del form salen de la definición del proceso (`nodos[formulario].campos`) y la instancia guarda `datos` flexible. Si el profe pide **agregar un campo en vivo**, lo agregás a la definición y aparece en el formulario **sin tocar código** ni migrar. Es la prueba directa de "procesos configurables como datos" (spec) y del esquema flexible NoSQL (Act 1-B).
+  - Comando para agregar el campo en vivo (Mongo):
+    ```
+    db.procesos.updateOne(
+      { tenant_id:"empresa_01", proceso_id:"proc_vacaciones_v1" },
+      { $push: { "nodos.$[n].campos": { name:"destino", label:"Destino", type:"text", required:false } } },
+      { arrayFilters: [ { "n.node_id":"formulario" } ] })
+    ```
+    Luego **refrescás** la página → el campo aparece en "Nueva Solicitud" y en "▶ Ejecutar". Al crear la instancia, el valor queda en `instancias.datos` y en la auditoría de Cassandra.
 
 ## 7. Glosario express (por si te traban)
 - **BPM** = Business Process Management.

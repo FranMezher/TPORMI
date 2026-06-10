@@ -48,7 +48,7 @@ wait_for("Neo4j", [
 ])
 
 wait_for("MongoDB procesos", [
-    "docker", "exec", "flowops-procesos",
+    "docker", "exec", "flowops-instancias",
     "mongosh", "-u", "admin", "-p", "flowops123",
     "--authenticationDatabase", "admin",
     "--quiet", "--eval", 'db.runCommand({ping:1}).ok'
@@ -144,7 +144,14 @@ db.procesos.insertOne({
   nodos: [
     { node_id: "start",               tipo: "start",        nombre: "Inicio" },
     { node_id: "formulario",          tipo: "form",         nombre: "Formulario de Solicitud",
-      campos: ["fecha_inicio","fecha_fin"], campos_calculados: ["dias_solicitados"], rol_ejecutor: "empleado" },
+      campos: [
+        { name: "empleado_id",      label: "Empleado ID",      type: "text",     required: true },
+        { name: "fecha_inicio",     label: "Fecha inicio",     type: "date",     required: true },
+        { name: "fecha_fin",        label: "Fecha fin",        type: "date",     required: true },
+        { name: "dias_solicitados", label: "Días solicitados (hábiles)", type: "calculated", required: true },
+        { name: "motivo",           label: "Motivo",           type: "textarea", required: false }
+      ],
+      campos_calculados: ["dias_solicitados"], rol_ejecutor: "empleado" },
     { node_id: "validacion_saldo",    tipo: "decision",     nombre: "Validar Saldo de Días",
       automatico: true, condicion: "dias_solicitados <= empleado.saldo_dias" },
     { node_id: "aprobacion_gerencia", tipo: "task",         nombre: "Aprobación Gerencia",
@@ -169,7 +176,7 @@ db.procesos.insertOne({
 """
 
 run(
-    ["docker", "exec", "-i", "flowops-procesos",
+    ["docker", "exec", "-i", "flowops-instancias",
      "mongosh", "-u", "admin", "-p", "flowops123",
      "--authenticationDatabase", "admin", "--quiet"],
     input_text=MONGO_JS
@@ -254,7 +261,7 @@ try:
 except: print("  Neo4j     → (no se pudo verificar)")
 
 try:
-    mp = run(["docker", "exec", "flowops-procesos", "mongosh", "-u", "admin", "-p", "flowops123", "--authenticationDatabase", "admin", "--quiet", "--eval", "db.getSiblingDB('flowops_procesos').procesos.countDocuments()"], check=False).stdout.strip().split("\n")[-1]
+    mp = run(["docker", "exec", "flowops-instancias", "mongosh", "-u", "admin", "-p", "flowops123", "--authenticationDatabase", "admin", "--quiet", "--eval", "db.getSiblingDB('flowops_procesos').procesos.countDocuments()"], check=False).stdout.strip().split("\n")[-1]
     print(f"  MongoDB   → {mp} proceso(s) definido(s)")
 except: print("  MongoDB   → (no se pudo verificar)")
 

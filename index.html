@@ -218,7 +218,7 @@
   </div>
   <div class="side-foot">
     <div>Solicitud de Vacaciones · v1</div>
-    <div class="dotline"><span class="dot ok"></span> tenant: empresa_01</div>
+    <div class="dotline"><span class="dot ok"></span> tenant: <span id="foot-tenant">empresa_01</span></div>
   </div>
 </aside>
 
@@ -303,14 +303,9 @@
   <div id="tab-nueva" class="tab"><div class="scroll"><div class="pad">
     <h2 class="sec">Nueva Solicitud de Vacaciones</h2>
     <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:26px;max-width:640px">
-      <div class="form-grid">
-        <div class="form-group"><label>Empleado ID *</label><input id="f-emp" type="text" placeholder="ej. emp_001"></div>
-        <div class="form-group"><label>Días solicitados *</label><input id="f-dias" type="number" min="1" max="30" value="5"></div>
-        <div class="form-group"><label>Fecha inicio *</label><input id="f-fi" type="date"></div>
-        <div class="form-group"><label>Fecha fin *</label><input id="f-ff" type="date"></div>
-        <div class="form-group full"><label>Motivo</label><textarea id="f-mot" placeholder="Vacaciones anuales…"></textarea></div>
-        <div class="form-group full"><button class="btn btn-primary" onclick="crearInstancia()">Enviar solicitud</button></div>
-      </div>
+      <p style="font-size:.78rem;color:var(--muted);margin-bottom:14px">Campos generados desde la definición del proceso (MongoDB).</p>
+      <div class="form-grid" id="form-nueva-fields"><p class="loading">Cargando formulario…</p></div>
+      <button class="btn btn-primary" style="margin-top:16px" onclick="crearInstancia()">Enviar solicitud</button>
       <div id="msg-nueva"></div>
     </div>
     <div style="margin-top:20px;max-width:640px">
@@ -369,13 +364,7 @@
   <div class="modal-box">
     <h3>▶ Iniciar solicitud de vacaciones</h3>
     <p style="font-size:.82rem;color:var(--muted);margin-bottom:16px">Se crea una instancia y se escribe en los 4 motores. Luego verás el recorrido animado en el workflow.</p>
-    <div class="form-grid">
-      <div class="form-group"><label>Empleado ID *</label><input id="l-emp" type="text" placeholder="emp_001"></div>
-      <div class="form-group"><label>Días *</label><input id="l-dias" type="number" min="1" max="30" value="5"></div>
-      <div class="form-group"><label>Fecha inicio *</label><input id="l-fi" type="date"></div>
-      <div class="form-group"><label>Fecha fin *</label><input id="l-ff" type="date"></div>
-      <div class="form-group full"><label>Motivo</label><input id="l-mot" type="text" placeholder="Vacaciones anuales"></div>
-    </div>
+    <div class="form-grid" id="launch-fields"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeLaunch()" style="background:var(--border);color:var(--text)">Cancelar</button>
       <button class="btn btn-sm" style="background:var(--green);color:#04210f;font-weight:700;padding:7px 16px" onclick="launchInstancia()">▶ Ejecutar</button>
@@ -424,6 +413,8 @@ async function loadTenants() {
   sel.innerHTML = opts.map(o =>
       `<option value="${o.tenant_id}" ${o.tenant_id === TENANT ? 'selected' : ''}>${o.name || o.tenant_id}</option>`).join('')
     + `<option value="__new__">➕ Nueva empresa…</option>`;
+  const foot = document.getElementById('foot-tenant');
+  if (foot) foot.textContent = TENANT;
 }
 async function onTenantChange() {
   const sel = document.getElementById('tenant-select');
@@ -479,6 +470,7 @@ function switchTab(name, btn) {
   if (name === 'workflow')   loadWorkflow();
   if (name === 'dashboard')  loadDashboard();
   if (name === 'instancias') loadInstancias();
+  if (name === 'nueva')      loadNueva();
   if (name === 'grafo')      loadGrafo();
   if (name === 'redis')      loadRedis();
 }
@@ -689,28 +681,24 @@ async function runPath(ids) {
 // ─── Lanzar workflow desde el canvas ──────────────────────
 function openLaunch() {
   document.getElementById('launch-msg').innerHTML = '';
-  const today = new Date().toISOString().slice(0,10);
-  const next  = new Date(Date.now() + 7*864e5).toISOString().slice(0,10);
-  if (!document.getElementById('l-fi').value) document.getElementById('l-fi').value = today;
-  if (!document.getElementById('l-ff').value) document.getElementById('l-ff').value = next;
+  renderForm('launch-fields', formFields());   // campos desde la definición del proceso
   document.getElementById('launch-overlay').classList.remove('hidden');
 }
 function closeLaunch() { document.getElementById('launch-overlay').classList.add('hidden'); }
 
 async function launchInstancia() {
-  const emp = document.getElementById('l-emp').value.trim();
-  const dias = parseInt(document.getElementById('l-dias').value);
-  const fi = document.getElementById('l-fi').value, ff = document.getElementById('l-ff').value;
-  const mot = document.getElementById('l-mot').value.trim() || 'Vacaciones anuales';
-  const msgEl = document.getElementById('launch-msg');
-  if (!emp || !fi || !ff || !dias) { msgEl.innerHTML = '<div class="msg msg-err">Completá empleado, días y fechas.</div>'; return; }
+  const fields = formFields();
+  const datos  = readForm('launch-fields', fields);
+  const msgEl  = document.getElementById('launch-msg');
+  const miss   = missingField(fields, datos);
+  if (miss) { msgEl.innerHTML = `<div class="msg msg-err">Completá: ${miss}</div>`; return; }
   msgEl.innerHTML = '<div class="msg msg-info">Escribiendo en MongoDB, Redis, Cassandra y Neo4j…</div>';
   try {
     const res = await fetch(api('/api/instancias'), { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ empleado_id: emp, fecha_inicio: fi, fecha_fin: ff, dias_solicitados: dias, motivo: mot }) }).then(r => r.json());
+      body: JSON.stringify({ empleado_id: datos.empleado_id, datos }) }).then(r => r.json());
     if (!res.ok) { msgEl.innerHTML = `<div class="msg msg-err">Error: ${JSON.stringify(res)}</div>`; return; }
     closeLaunch();
-    toast(`▶ Ejecutando <strong>${res.instance_id}</strong> · empleado ${emp}`);
+    toast(`▶ Ejecutando <strong>${res.instance_id}</strong> · empleado ${datos.empleado_id}`);
     // Camino al crear: validacion automática → queda en aprobacion_gerencia
     await runPath(['start','formulario','validacion_saldo','aprobacion_gerencia']);
     toast(`⏸ <strong>${res.instance_id}</strong> esperando aprobación de gerencia. Hacé clic en el nodo para decidir.`, 4000);
@@ -834,19 +822,94 @@ function verAuditoria(iid) {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  CREAR INSTANCIA
+//  FORMULARIO DATA-DRIVEN (campos desde la definición del proceso)
 // ═══════════════════════════════════════════════════════════
+function formFields() {
+  const node = (_proceso?.nodos || []).find(n => n.node_id === 'formulario' || n.tipo === 'form');
+  const campos = (node && node.campos) || [];
+  return campos.map(c => typeof c === 'string'
+    ? { name: c, label: c, type: c.includes('fecha') ? 'date' : (c.includes('dias') ? 'number' : 'text'), required: true }
+    : c);
+}
+function diasHabiles(fi, ff) {
+  if (!fi || !ff) return '';
+  const p = s => { const [y,m,d] = s.split('-').map(Number); return Date.UTC(y, m-1, d); };
+  let t0 = p(fi), t1 = p(ff);
+  if (isNaN(t0) || isNaN(t1) || t1 < t0) return 0;
+  let n = 0;
+  for (let t = t0; t <= t1; t += 86400000) {
+    const wd = new Date(t).getUTCDay();          // 0=dom, 6=sáb
+    if (wd !== 0 && wd !== 6) n++;
+  }
+  return n;
+}
+function renderForm(containerId, fields) {
+  const c = document.getElementById(containerId);
+  if (!fields.length) { c.innerHTML = '<p class="loading">El proceso no define campos de formulario.</p>'; return; }
+  c.innerHTML = fields.map(f => {
+    const ph = f.placeholder || '';
+    const req = f.required ? ' *' : '';
+    const full = f.type === 'textarea' ? ' full' : '';
+    let input;
+    if (f.type === 'textarea')
+      input = `<textarea data-field="${f.name}" placeholder="${ph}"></textarea>`;
+    else if (f.type === 'calculated')
+      input = `<input data-field="${f.name}" data-calc="1" type="number" readonly
+                 title="Calculado automáticamente desde las fechas"
+                 style="background:var(--bg);opacity:.85;cursor:not-allowed">`;
+    else
+      input = `<input data-field="${f.name}" type="${f.type || 'text'}" placeholder="${ph}">`;
+    const hint = f.type === 'calculated' ? ' <small style="color:var(--muted)">(auto)</small>' : '';
+    return `<div class="form-group${full}"><label>${f.label || f.name}${req}${hint}</label>${input}</div>`;
+  }).join('');
+  const today = new Date().toISOString().slice(0,10);
+  const next  = new Date(Date.now() + 7*864e5).toISOString().slice(0,10);
+  const fi = c.querySelector('[data-field="fecha_inicio"]'); if (fi) fi.value = today;
+  const ff = c.querySelector('[data-field="fecha_fin"]');    if (ff) ff.value = next;
+  // Recalcular campo(s) calculado(s) al cambiar las fechas
+  const recalc = () => {
+    const a = c.querySelector('[data-field="fecha_inicio"]')?.value;
+    const b = c.querySelector('[data-field="fecha_fin"]')?.value;
+    const dc = c.querySelector('[data-calc="1"]');
+    if (dc) dc.value = diasHabiles(a, b);
+  };
+  c.querySelectorAll('[data-field="fecha_inicio"],[data-field="fecha_fin"]')
+   .forEach(el => el.addEventListener('change', recalc));
+  recalc();
+}
+function readForm(containerId, fields) {
+  const datos = {};
+  for (const f of fields) {
+    const el = document.querySelector(`#${containerId} [data-field="${f.name}"]`);
+    let v = el ? el.value.trim() : '';
+    if ((f.type === 'number' || f.type === 'calculated') && v !== '') v = parseInt(v);
+    datos[f.name] = v;
+  }
+  return datos;
+}
+function missingField(fields, datos) {
+  for (const f of fields) {
+    const v = datos[f.name];
+    if (f.required && (v === '' || v === undefined || v === null || (f.type === 'number' && isNaN(v))))
+      return f.label || f.name;
+  }
+  return null;
+}
+async function loadNueva() {
+  if (!_proceso) _proceso = await fetch(api('/api/proceso')).then(r => r.json()).catch(() => null);
+  renderForm('form-nueva-fields', formFields());
+}
+
 async function crearInstancia() {
-  const emp = document.getElementById('f-emp').value.trim();
-  const dias = parseInt(document.getElementById('f-dias').value);
-  const fi = document.getElementById('f-fi').value, ff = document.getElementById('f-ff').value;
-  const mot = document.getElementById('f-mot').value.trim() || 'Vacaciones anuales';
-  const msgEl = document.getElementById('msg-nueva');
-  if (!emp || !fi || !ff || !dias) { msgEl.innerHTML = '<div class="msg msg-err">Completá todos los campos requeridos.</div>'; return; }
+  const fields = formFields();
+  const datos  = readForm('form-nueva-fields', fields);
+  const msgEl  = document.getElementById('msg-nueva');
+  const miss   = missingField(fields, datos);
+  if (miss) { msgEl.innerHTML = `<div class="msg msg-err">Completá: ${miss}</div>`; return; }
   msgEl.innerHTML = '<div class="msg msg-info">Enviando a los 4 motores de datos…</div>';
   try {
     const res = await fetch(api('/api/instancias'), { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ empleado_id: emp, fecha_inicio: fi, fecha_fin: ff, dias_solicitados: dias, motivo: mot }) }).then(r => r.json());
+      body: JSON.stringify({ empleado_id: datos.empleado_id, datos }) }).then(r => r.json());
     if (res.ok) {
       let warns = res.warnings?.length ? `<br><small style="color:var(--yellow)">Warnings: ${res.warnings.join('; ')}</small>` : '';
       msgEl.innerHTML = `<div class="msg msg-ok">✅ Solicitud creada: <strong>${res.instance_id}</strong>${warns}</div>`;
@@ -954,10 +1017,6 @@ async function confirmarAvanzar() {
 // ─── Init ─────────────────────────────────────────────────
 loadTenants();
 loadWorkflow();
-const today = new Date().toISOString().slice(0,10);
-const next  = new Date(Date.now() + 7*864e5).toISOString().slice(0,10);
-document.getElementById('f-fi').value = today;
-document.getElementById('f-ff').value = next;
 window.addEventListener('resize', () => { if (document.getElementById('tab-workflow').classList.contains('active')) wfFit(); });
 </script>
 </body>

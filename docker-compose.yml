@@ -2,26 +2,12 @@ version: "3.8"
 
 services:
 
-  # ----------------------------
-  # definiciones de procesos
-  # ----------------------------
-  procesos:
-    image: mongo:7
-    container_name: flowops-procesos
-    ports:
-      - "27017:27017"
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: flowops123
-      MONGO_INITDB_DATABASE: flowops_procesos
-    volumes:
-      - procesos:/data/db
-    networks:
-      - flowops-net
-
-  # ----------------------------
-  # estado de instancias
-  # ----------------------------
+  # ----------------------------------------------------------
+  # MongoDB (una instancia, dos bases lógicas):
+  #   · flowops_procesos   → definiciones de procesos + tenants
+  #   · flowops_instancias → instancias + tareas
+  # Puerto 27018 (evita el conflicto con el Mongo nativo del 27017)
+  # ----------------------------------------------------------
   instancias:
     image: mongo:7
     container_name: flowops-instancias
@@ -99,7 +85,6 @@ services:
       - flowops-net
 
 volumes:
-  procesos:
   instancias:
   auditoria:
   cache:

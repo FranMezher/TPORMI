@@ -25,7 +25,7 @@ until docker exec flowops-grafo cypher-shell -u neo4j -p flowops123 "RETURN 1" &
 ok "Neo4j listo"
 
 info "MongoDB procesos..."
-until docker exec flowops-procesos mongosh -u admin -p flowops123 \
+until docker exec flowops-instancias mongosh -u admin -p flowops123 \
   --authenticationDatabase admin --quiet \
   --eval "db.runCommand({ping:1})" 2>/dev/null | grep -q "ok"; do sleep 2; done
 ok "MongoDB listo"
@@ -156,7 +156,7 @@ ok "Neo4j cargado"
 echo ""
 echo "[ 3/4 ] MongoDB — definición del proceso..."
 
-docker exec -i flowops-procesos mongosh \
+docker exec -i flowops-instancias mongosh \
   -u admin -p flowops123 \
   --authenticationDatabase admin --quiet <<'MONGO'
 db = db.getSiblingDB('flowops_procesos');
@@ -177,7 +177,13 @@ db.procesos.insertOne({
       tipo: "start", nombre: "Inicio" },
     { node_id: "formulario",
       tipo: "form", nombre: "Formulario de Solicitud",
-      campos: ["fecha_inicio", "fecha_fin"],
+      campos: [
+        { name: "empleado_id",      label: "Empleado ID",      type: "text",     required: true },
+        { name: "fecha_inicio",     label: "Fecha inicio",     type: "date",     required: true },
+        { name: "fecha_fin",        label: "Fecha fin",        type: "date",     required: true },
+        { name: "dias_solicitados", label: "Días solicitados (hábiles)", type: "calculated", required: true },
+        { name: "motivo",           label: "Motivo",           type: "textarea", required: false }
+      ],
       campos_calculados: ["dias_solicitados"],
       rol_ejecutor: "empleado" },
     { node_id: "validacion_saldo",
@@ -316,7 +322,7 @@ echo "============================================================"
 
 NEO_NODOS=$(docker exec flowops-grafo cypher-shell -u neo4j -p flowops123 --format plain "MATCH (n) RETURN count(n)" 2>/dev/null | tail -1)
 NEO_RELS=$(docker exec flowops-grafo  cypher-shell -u neo4j -p flowops123 --format plain "MATCH ()-[r]->() RETURN count(r)" 2>/dev/null | tail -1)
-MONGO_PROC=$(docker exec flowops-procesos mongosh -u admin -p flowops123 --authenticationDatabase admin --quiet --eval "db.getSiblingDB('flowops_procesos').procesos.countDocuments()" 2>/dev/null | tail -1)
+MONGO_PROC=$(docker exec flowops-instancias mongosh -u admin -p flowops123 --authenticationDatabase admin --quiet --eval "db.getSiblingDB('flowops_procesos').procesos.countDocuments()" 2>/dev/null | tail -1)
 CASS_EVENTS=$(docker exec flowops-auditoria cqlsh --execute "SELECT COUNT(*) FROM flowops.eventos_instancia" 2>/dev/null | grep -E '^\s+[0-9]' | tr -d ' ')
 REDIS_KEYS=$(docker exec flowops-cache redis-cli -a flowops123 DBSIZE 2>/dev/null)
 
