@@ -86,8 +86,24 @@ def neo4j():
 
 # ─── Accesos a colecciones ───────────────────────────────────
 def procesos_col():   return mongo_proc()["flowops_procesos"]["procesos"]
+def tenants_col():    return mongo_proc()["flowops_procesos"]["tenants"]
 def instancias_col(): return mongo_inst()["flowops_instancias"]["instancias"]
 def tareas_col():     return mongo_inst()["flowops_instancias"]["tareas"]
+
+# Proceso estándar que toda empresa tiene disponible
+STD_PROCESS_ID = "proc_vacaciones_v1"
+
+def provision_process(tenant_id: str):
+    """Asegura que un tenant tenga su copia del proceso estándar (clona la plantilla)."""
+    if procesos_col().count_documents({"tenant_id": tenant_id, "proceso_id": STD_PROCESS_ID}):
+        return
+    template = (procesos_col().find_one({"proceso_id": STD_PROCESS_ID})
+                or procesos_col().find_one({}))
+    if not template:
+        return
+    doc = {k: v for k, v in template.items() if k != "_id"}
+    doc["tenant_id"] = tenant_id
+    procesos_col().insert_one(doc)
 
 # ─── Helpers ─────────────────────────────────────────────────
 def clean(obj):
@@ -396,6 +412,17 @@ def seed_and_migrate():
         # Migración: backfill tenant_id en datos preexistentes
         col.update_many({"tenant_id": {"$exists": False}}, {"$set": {"tenant_id": DEFAULT_TENANT}})
         procesos_col().update_many({"tenant_id": {"$exists": False}}, {"$set": {"tenant_id": DEFAULT_TENANT}})
+        # Entidad Tenant: seed de empresas demo si la colección está vacía
+        tcol = tenants_col()
+        if tcol.count_documents({}) == 0:
+            tcol.insert_many([
+                {"tenant_id": "empresa_01", "name": "Grupo 7 S.A.",   "status": "active", "plan": "demo", "created_at": datetime.utcnow()},
+                {"tenant_id": "empresa_02", "name": "Acme Logística",  "status": "active", "plan": "demo", "created_at": datetime.utcnow()},
+                {"tenant_id": "empresa_03", "name": "Delta Salud",     "status": "active", "plan": "demo", "created_at": datetime.utcnow()},
+            ])
+        # Cada empresa tiene aprovisionado el proceso estándar "Solicitud de Vacaciones"
+        for t in tcol.distinct("tenant_id"):
+            provision_process(t)
         # Crear tareas pendientes para instancias detenidas en un nodo task
         tnodes = task_nodes(DEFAULT_TENANT)
         for d in col.find({"estado": {"$in": ["pendiente", "pendiente_gerencia"]}}):
@@ -534,20 +561,55 @@ def api_status():
         out["neo4j"] = {"ok": False, "error": str(e), "label": "Neo4j Grafo"}
     return out
 
-@app.get("/api/proceso")
-def get_proceso():
+class NuevoTenant(BaseModel):
+    tenant_id: str
+    name:      Optional[str] = None
+    plan:      Optional[str] = "demo"
+
+@app.get("/api/tenants")
+def listar_tenants():
+    """Lista las empresas (entidad Tenant) para el selector del frontend."""
     try:
-        doc = (procesos_col().find_one({"tenant_id": DEFAULT_TENANT}, {"_id": 0})
-               or procesos_col().find_one({}, {"_id": 0}))
+        docs = [clean(d) for d in tenants_col().find({}, {"_id": 0}).sort("tenant_id", 1)]
+        if docs:
+            return docs
+        # Fallback: derivar de los datos si aún no hay colección tenants
+        ids = set(procesos_col().distinct("tenant_id")) | set(instancias_col().distinct("tenant_id"))
+        return [{"tenant_id": x, "name": x, "status": "active"} for x in sorted(ids) if x] \
+               or [{"tenant_id": DEFAULT_TENANT, "name": DEFAULT_TENANT, "status": "active"}]
+    except Exception:
+        return [{"tenant_id": DEFAULT_TENANT, "name": DEFAULT_TENANT, "status": "active"}]
+
+@app.post("/api/tenants", status_code=201)
+def crear_tenant(body: NuevoTenant):
+    """Crea una empresa y le aprovisiona el proceso estándar."""
+    tid = (body.tenant_id or "").strip()
+    if not tid:
+        raise HTTPException(400, "Falta 'tenant_id'")
+    try:
+        tenants_col().update_one(
+            {"tenant_id": tid},
+            {"$set": {"tenant_id": tid, "name": body.name or tid, "status": "active", "plan": body.plan},
+             "$setOnInsert": {"created_at": datetime.utcnow()}},
+            upsert=True)
+        provision_process(tid)  # la empresa nueva arranca con "Solicitud de Vacaciones"
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    return {"ok": True, "tenant_id": tid, "name": body.name or tid}
+
+@app.get("/api/proceso")
+def get_proceso(tenant: str = DEFAULT_TENANT):
+    try:
+        doc = procesos_col().find_one({"tenant_id": tenant}, {"_id": 0})
         return clean(doc) or {}
     except Exception as e:
         raise HTTPException(500, str(e))
 
 @app.get("/api/instancias")
-def get_instancias():
+def get_instancias(tenant: str = DEFAULT_TENANT):
     try:
         docs = [clean(d) for d in
-                instancias_col().find({"tenant_id": DEFAULT_TENANT}, {"_id": 0})]
+                instancias_col().find({"tenant_id": tenant}, {"_id": 0})]
         for d in docs:
             try:
                 st = rdb().hgetall(redis_key(d["instance_id"]))
@@ -563,10 +625,10 @@ def get_instancias():
         raise HTTPException(500, str(e))
 
 @app.get("/api/instancias/{iid}")
-def get_instancia(iid: str):
+def get_instancia(iid: str, tenant: str = DEFAULT_TENANT):
     try:
         doc = instancias_col().find_one(
-            {"tenant_id": DEFAULT_TENANT, "instance_id": iid}, {"_id": 0})
+            {"tenant_id": tenant, "instance_id": iid}, {"_id": 0})
         if not doc:
             raise HTTPException(404, "Instancia no encontrada")
         doc = clean(doc)
@@ -581,19 +643,19 @@ def get_instancia(iid: str):
         raise HTTPException(500, str(e))
 
 @app.get("/api/instancias/{iid}/eventos")
-def get_eventos(iid: str):
+def get_eventos(iid: str, tenant: str = DEFAULT_TENANT):
     try:
-        return core_eventos(DEFAULT_TENANT, iid)
+        return core_eventos(tenant, iid)
     except Exception as e:
         raise HTTPException(500, str(e))
 
 @app.post("/api/instancias", status_code=201)
-def crear_instancia(body: NuevaSolicitud):
-    return core_crear_instancia(DEFAULT_TENANT, body)
+def crear_instancia(body: NuevaSolicitud, tenant: str = DEFAULT_TENANT):
+    return core_crear_instancia(tenant, body)
 
 @app.post("/api/instancias/{iid}/avanzar")
-def avanzar(iid: str, body: AccionInstancia):
-    return core_avanzar(DEFAULT_TENANT, iid, body.actor_id, body.accion, body.comentario or "")
+def avanzar(iid: str, body: AccionInstancia, tenant: str = DEFAULT_TENANT):
+    return core_avanzar(tenant, iid, body.actor_id, body.accion, body.comentario or "")
 
 @app.get("/api/empleados")
 def get_empleados():

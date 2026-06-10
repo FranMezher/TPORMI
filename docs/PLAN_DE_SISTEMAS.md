@@ -130,7 +130,7 @@ FlowOps es una **composición de motores**, cada uno con su posicionamiento CAP.
 
 | Subsistema | Diseñado en clase | Implementado en el prototipo |
 |-----------|-------------------|------------------------------|
-| MongoDB | 6 colecciones (tenants, process_definitions, process_instances, tasks, forms, notification_templates) con embedding/referencing e índices (Act 5) | `procesos`, `instancias`, `tareas` con `tenant_id` e índices lógicos |
+| MongoDB | 6 colecciones (tenants, process_definitions, process_instances, tasks, forms, notification_templates) con embedding/referencing e índices (Act 5) | `tenants`, `procesos`, `instancias`, `tareas` con `tenant_id`; alta de empresa aprovisiona el proceso |
 | Cassandra | 3 tablas orientadas a consulta (events_by_instance, events_by_tenant_date, events_by_actor) + niveles ONE/QUORUM (Act 6) | 1 tabla `eventos_instancia` con PK `(tenant_id, instance_id)` |
 | Neo4j | 8 tipos de nodo + 11 relaciones (Act 7) | Empleado, Rol, Solicitud, NodoProceso + relaciones SOLICITA/APRUEBA/NOTIFICADO/REPORTA_A/SIGUIENTE |
 | Redis | 6 patrones: caché, sesiones, colas, sorted sets, rate-limit, contadores (Act 8) | Caché de estado (Hash) + saldo de días |

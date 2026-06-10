@@ -58,6 +58,10 @@
                   background: rgba(34,197,94,.15); color: var(--green); }
   .topbar .spacer { margin-left: auto; }
   .topbar .clock { font-size: .75rem; color: var(--muted); }
+  .tenant-box { display: flex; align-items: center; gap: 6px; font-size: .72rem; color: var(--muted);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 4px 8px; }
+  .tenant-box select { background: var(--card); color: var(--text); border: 1px solid var(--border);
+    border-radius: 5px; padding: 3px 6px; font-size: .78rem; cursor: pointer; }
 
   .scroll { flex: 1; overflow: auto; }
   .pad { padding: 22px; max-width: 1180px; margin: 0 auto; }
@@ -223,6 +227,9 @@
   <div class="topbar">
     <h2 id="topbar-title">Solicitud de Vacaciones</h2>
     <span class="pill">● activo</span>
+    <label class="tenant-box">🏢 Empresa
+      <select id="tenant-select" onchange="onTenantChange()"></select>
+    </label>
     <div class="spacer"></div>
     <span class="clock" id="ts-header"></span>
   </div>
@@ -398,6 +405,45 @@
 <script>
 const BASE = '';
 let _currentIid = null;
+let TENANT = 'empresa_01';
+
+// Agrega ?tenant= a las rutas tenant-scoped (proceso, instancias, eventos, crear, avanzar)
+function api(path) {
+  const sep = path.includes('?') ? '&' : '?';
+  return `${BASE}${path}${sep}tenant=${encodeURIComponent(TENANT)}`;
+}
+
+// ─── Selector de empresa (tenant) ─────────────────────────
+async function loadTenants() {
+  const sel = document.getElementById('tenant-select');
+  let list = await fetch(`${BASE}/api/tenants`).then(r => r.json()).catch(() => []);
+  if (!Array.isArray(list)) list = [];
+  // Acepta strings u objetos {tenant_id, name}
+  let opts = list.map(t => typeof t === 'string' ? { tenant_id: t, name: t } : t);
+  if (!opts.find(o => o.tenant_id === TENANT)) opts.unshift({ tenant_id: TENANT, name: TENANT });
+  sel.innerHTML = opts.map(o =>
+      `<option value="${o.tenant_id}" ${o.tenant_id === TENANT ? 'selected' : ''}>${o.name || o.tenant_id}</option>`).join('')
+    + `<option value="__new__">➕ Nueva empresa…</option>`;
+}
+async function onTenantChange() {
+  const sel = document.getElementById('tenant-select');
+  if (sel.value === '__new__') {
+    const id = (prompt('ID de la nueva empresa (tenant_id):', 'empresa_04') || '').trim();
+    if (!id) { sel.value = TENANT; return; }
+    const name = (prompt('Nombre de la empresa:', id) || id).trim();
+    await fetch(`${BASE}/api/tenants`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenant_id: id, name })
+    }).catch(() => {});
+    TENANT = id;                   // arranca con el proceso ya aprovisionado
+  } else {
+    TENANT = sel.value;
+  }
+  _proceso = null;                 // fuerza recargar la definición del nuevo tenant
+  await loadTenants();             // re-renderiza el dropdown
+  const active = document.querySelector('.side-nav button.active');
+  switchTab(active ? active.dataset.tab : 'workflow', active);
+}
 
 // ─── Node visual config (icon + color por node_id) ─────────
 const NODE_STYLE = {
@@ -467,7 +513,7 @@ function edgeColor(cond) {
 async function loadWorkflow() {
   // 1. Definición del proceso (MongoDB)
   if (!_proceso) {
-    _proceso = await fetch(`${BASE}/api/proceso`).then(r => r.json()).catch(() => null);
+    _proceso = await fetch(api('/api/proceso')).then(r => r.json()).catch(() => null);
   }
   const world = document.getElementById('wf-world');
   const svg   = document.getElementById('wf-edges');
@@ -477,7 +523,10 @@ async function loadWorkflow() {
 
   if (!_proceso || !_proceso.nodos) {
     world.insertAdjacentHTML('beforeend',
-      '<div style="position:absolute;left:40px;top:40px;color:var(--muted)">No se pudo cargar /api/proceso. ¿Está la API arriba y cargado load_all?</div>');
+      `<div style="position:absolute;left:40px;top:40px;color:var(--muted);max-width:420px">
+        La empresa <strong>${TENANT}</strong> no tiene un proceso definido.<br>
+        Creá uno con <code>POST /api/${TENANT}/processes</code> (Swagger en <code>/docs</code>) o elegí otra empresa arriba.
+      </div>`);
     return;
   }
 
@@ -547,7 +596,7 @@ async function loadWorkflow() {
 }
 
 async function overlayLiveState() {
-  const inst = await fetch(`${BASE}/api/instancias`).then(r => r.json()).catch(() => []);
+  const inst = await fetch(api('/api/instancias')).then(r => r.json()).catch(() => []);
   document.querySelectorAll('.wf-node').forEach(n => {
     n.classList.remove('active','clickable'); n.querySelector('.wf-count')?.remove();
   });
@@ -657,7 +706,7 @@ async function launchInstancia() {
   if (!emp || !fi || !ff || !dias) { msgEl.innerHTML = '<div class="msg msg-err">Completá empleado, días y fechas.</div>'; return; }
   msgEl.innerHTML = '<div class="msg msg-info">Escribiendo en MongoDB, Redis, Cassandra y Neo4j…</div>';
   try {
-    const res = await fetch(`${BASE}/api/instancias`, { method:'POST', headers:{'Content-Type':'application/json'},
+    const res = await fetch(api('/api/instancias'), { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ empleado_id: emp, fecha_inicio: fi, fecha_fin: ff, dias_solicitados: dias, motivo: mot }) }).then(r => r.json());
     if (!res.ok) { msgEl.innerHTML = `<div class="msg msg-err">Error: ${JSON.stringify(res)}</div>`; return; }
     closeLaunch();
@@ -741,7 +790,7 @@ async function loadDashboard() {
       </div>`;
   }
   document.getElementById('db-cards').innerHTML = html;
-  const inst = await fetch(`${BASE}/api/instancias`).then(r => r.json()).catch(() => []);
+  const inst = await fetch(api('/api/instancias')).then(r => r.json()).catch(() => []);
   const counts = {};
   inst.forEach(i => { const e = i.redis_estado || i.estado || 'desconocido'; counts[e] = (counts[e]||0)+1; });
   let dhtml = '';
@@ -757,7 +806,7 @@ async function loadDashboard() {
 async function loadInstancias() {
   const tbody = document.getElementById('tbody-instancias');
   tbody.innerHTML = '<tr><td colspan="7" class="loading">Cargando…</td></tr>';
-  const data = await fetch(`${BASE}/api/instancias`).then(r => r.json()).catch(() => []);
+  const data = await fetch(api('/api/instancias')).then(r => r.json()).catch(() => []);
   if (!data.length) { tbody.innerHTML = '<tr><td colspan="7" style="color:var(--muted);padding:20px">Sin instancias</td></tr>'; return; }
   tbody.innerHTML = data.map(d => {
     const nodo = d.redis_nodo || d.nodo_actual || '—';
@@ -796,7 +845,7 @@ async function crearInstancia() {
   if (!emp || !fi || !ff || !dias) { msgEl.innerHTML = '<div class="msg msg-err">Completá todos los campos requeridos.</div>'; return; }
   msgEl.innerHTML = '<div class="msg msg-info">Enviando a los 4 motores de datos…</div>';
   try {
-    const res = await fetch(`${BASE}/api/instancias`, { method:'POST', headers:{'Content-Type':'application/json'},
+    const res = await fetch(api('/api/instancias'), { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ empleado_id: emp, fecha_inicio: fi, fecha_fin: ff, dias_solicitados: dias, motivo: mot }) }).then(r => r.json());
     if (res.ok) {
       let warns = res.warnings?.length ? `<br><small style="color:var(--yellow)">Warnings: ${res.warnings.join('; ')}</small>` : '';
@@ -816,7 +865,7 @@ async function loadEventos() {
   const cont = document.getElementById('timeline-container');
   cont.innerHTML = '<p class="loading">Cargando eventos de Cassandra…</p>';
   try {
-    const data = await fetch(`${BASE}/api/instancias/${iid}/eventos`).then(r => r.json());
+    const data = await fetch(api(`/api/instancias/${iid}/eventos`)).then(r => r.json());
     if (!data.length) { cont.innerHTML = '<p class="loading">Sin eventos para esta instancia.</p>'; return; }
     cont.innerHTML = '<div class="timeline">' + data.map(ev => {
       const ico = nodeIcon[ev.nodo] || '⬤';
@@ -884,7 +933,7 @@ async function confirmarAvanzar() {
   const msgEl = document.getElementById('modal-msg');
   if (!actor) { msgEl.innerHTML = '<div class="msg msg-err">Ingresá el Actor ID.</div>'; return; }
   try {
-    const res = await fetch(`${BASE}/api/instancias/${_currentIid}/avanzar`, { method:'POST', headers:{'Content-Type':'application/json'},
+    const res = await fetch(api(`/api/instancias/${_currentIid}/avanzar`), { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ actor_id: actor, accion, comentario: comment }) }).then(r => r.json());
     if (res.ok) {
       const onCanvas = document.getElementById('tab-workflow').classList.contains('active');
@@ -903,6 +952,7 @@ async function confirmarAvanzar() {
 }
 
 // ─── Init ─────────────────────────────────────────────────
+loadTenants();
 loadWorkflow();
 const today = new Date().toISOString().slice(0,10);
 const next  = new Date(Date.now() + 7*864e5).toISOString().slice(0,10);

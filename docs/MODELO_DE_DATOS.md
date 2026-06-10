@@ -54,7 +54,15 @@ db.process_instances.createIndex({ tenant_id:1, status:1, updated_at:-1 })
 db.tasks.createIndex({ tenant_id:1, assigned_role:1, status:1, created_at:1 })
 ```
 
-> **[Prototipo]** Implementa `procesos` (≡ process_definitions), `instancias` (≡ process_instances) y `tareas` (≡ tasks), todas con `tenant_id`. Nombres de nodos del prototipo: `formulario`, `validacion_saldo`, `aprobacion_gerencia` (mismo concepto que `formulario_solicitud / validacion_dias / pendiente_aprobacion`). Las colecciones `forms`, `tenants` y `notification_templates` quedan como diseño.
+> **[Prototipo]** Implementa `tenants` (entidad Tenant: `tenant_id, name, status, plan, created_at`), `procesos` (≡ process_definitions), `instancias` (≡ process_instances) y `tareas` (≡ tasks), todas con `tenant_id`. Al crear una empresa (`POST /api/tenants`) se le **aprovisiona** automáticamente una copia del proceso estándar `proc_vacaciones_v1`. Nombres de nodos del prototipo: `formulario`, `validacion_saldo`, `aprobacion_gerencia` (mismo concepto que `formulario_solicitud / validacion_dias / pendiente_aprobacion`). Las colecciones `forms` y `notification_templates` quedan como diseño.
+
+### Ejemplo — tenant (entidad Tenant)
+
+```json
+{ "tenant_id": "empresa_01", "name": "Grupo 7 S.A.", "status": "active", "plan": "demo", "created_at": "2026-06-10T..." }
+```
+
+> **Diseño de multi-tenancy:** `tenant_id` es la **clave de partición lógica** que se repite en todas las colecciones y motores (Mongo, Cassandra como partition key, Redis como prefijo de clave, Neo4j como propiedad). La colección `tenants` es el **registro maestro** de cada empresa (config). Así, "agregar una empresa" = un documento en `tenants` + aprovisionar su proceso; no requiere tablas/esquemas separados por cliente.
 
 ---
 
