@@ -78,6 +78,11 @@
     ```
     Luego **refrescás** la página → el campo aparece en "Nueva Solicitud" y en "▶ Ejecutar". Al crear la instancia, el valor queda en `instancias.datos` y en la auditoría de Cassandra.
 
+## 6.ter Editor de workflow (demo n8n completa)
+- El canvas tiene **modo edición** (botón ✏️ Editar): arrastrás nodos, **agregás** nodos desde la paleta, **conectás** arrastrando desde el punto morado derecho, editás nombre/tipo/condición en el inspector, **borrás** nodos/transiciones, y **💾 Guardás** → `POST /api/{tenant}/processes`.
+- Las **posiciones** se guardan en la definición (cada nodo tiene `x,y`), así que el layout que armás queda persistido en MongoDB.
+- Mensaje para el oral: *"el proceso es dato; lo construyo visualmente y lo guardo sin tocar código — igual que n8n"*. Responde la sugerencia del profe de hacer el workflow editable.
+
 ## 7. Glosario express (por si te traban)
 - **BPM** = Business Process Management.
 - **Event sourcing** = guardar cada evento, no solo el estado final.

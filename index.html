@@ -81,6 +81,21 @@
   .zbtn { background: var(--border); border: none; color: var(--text); width: 28px; height: 28px;
           border-radius: 6px; cursor: pointer; font-size: 1rem; }
   .zbtn:hover { background: #353849; }
+  .ebtn { background: var(--surface2, #1E2530); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 8px; font-size: .74rem; cursor: pointer; }
+  .ebtn:hover { background: #2a3040; }
+  /* edición */
+  #wf-viewport.editing { background-color: #15161e; }
+  .wf-node.editable { cursor: grab; }
+  .wf-node.editable:active { cursor: grabbing; }
+  #wf-viewport.editing .wf-port.out { background: var(--purple); border-color: var(--purple);
+    width: 13px; height: 13px; cursor: crosshair; box-shadow: 0 0 0 3px rgba(168,85,247,.25); }
+  .ins-input, .ins-cond { width: 100%; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: .82rem; }
+  .ins-edge { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: .8rem; }
+  .ins-edge .ins-cond { width: auto; flex: 1; }
+  .ins-edge .x { background: rgba(239,68,68,.2); color: var(--red); border: 1px solid rgba(239,68,68,.3);
+    border-radius: 5px; cursor: pointer; padding: 2px 7px; }
 
   #wf-viewport { flex: 1; position: relative; overflow: hidden; cursor: grab;
     background-color: var(--canvas);
@@ -247,6 +262,16 @@
       <button class="zbtn" onclick="wfZoom(-0.1)">−</button>
       <button class="zbtn" onclick="wfFit()">⊡</button>
       <button class="zbtn" onclick="wfZoom(0.1)">+</button>
+      <button id="wf-edit-btn" class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="toggleEdit()">✏️ Editar</button>
+      <span id="wf-editbar" class="hidden" style="display:flex;gap:5px;align-items:center">
+        <span style="font-size:.72rem;color:var(--muted)">+ nodo:</span>
+        <button class="ebtn" onclick="addNode('form')">📝 form</button>
+        <button class="ebtn" onclick="addNode('decision')">⚖️ decisión</button>
+        <button class="ebtn" onclick="addNode('task')">🏢 task</button>
+        <button class="ebtn" onclick="addNode('notification')">✉️ notif</button>
+        <button class="ebtn" onclick="addNode('end')">⏹ end</button>
+        <button id="wf-save" class="btn btn-sm hidden" style="background:var(--green);color:#04210f;font-weight:700" onclick="saveWorkflow()">💾 Guardar</button>
+      </span>
       <div class="legend">
         <span><span class="lg-line" style="background:var(--green)"></span> camino OK</span>
         <span><span class="lg-line" style="background:var(--red)"></span> rechazo</span>
@@ -563,6 +588,10 @@ function badge(est) {
 let _proceso = null;
 let _edgeMap = {};
 let _pendingByNode = {};
+let _editMode = false;
+let _wfDirty = false;
+let _nodeDragged = false;
+const SVGNS = 'http://www.w3.org/2000/svg';
 
 function edgeColor(cond) {
   if (!cond) return '#475069';
@@ -571,15 +600,67 @@ function edgeColor(cond) {
   return '#475069';
 }
 
+function nodeById(id) { return (_proceso?.nodos || []).find(n => n.node_id === id); }
+
+// Asigna posición a cada nodo: usa n.x/n.y; si falta, NODE_POS; si falta, grilla automática
+function ensurePositions() {
+  let auto = 0;
+  (_proceso.nodos || []).forEach(n => {
+    if (n.x == null || n.y == null) {
+      const p = NODE_POS[n.node_id];
+      if (p) { n.x = p.x; n.y = p.y; }
+      else { n.x = 70 + (auto % 4) * 240; n.y = 90 + Math.floor(auto / 4) * 160; auto++; }
+    }
+  });
+}
+
 async function loadWorkflow() {
-  // 1. Definición del proceso (MongoDB)
-  if (!_proceso) {
-    _proceso = await fetch(api('/api/proceso')).then(r => r.json()).catch(() => null);
-  }
+  if (!_proceso) _proceso = await fetch(api('/api/proceso')).then(r => r.json()).catch(() => null);
+  renderWorkflow();
+  wfFit();
+  overlayLiveState();
+}
+
+function drawEdges() {
+  const svg = document.getElementById('wf-edges');
+  svg.querySelectorAll('path.edge, text.edge-label').forEach(e => e.remove());
+  _edgeMap = {};
+  (_proceso.transiciones || []).forEach(t => {
+    const a = nodeById(t.desde), b = nodeById(t.hasta);
+    if (!a || !b) return;
+    const ox = a.x + NODE_W, oy = a.y + NODE_H/2;
+    const ix = b.x,          iy = b.y + NODE_H/2;
+    const dx = Math.max(60, Math.abs(ix - ox) * 0.5);
+    const path = document.createElementNS(SVGNS, 'path');
+    path.setAttribute('class','edge');
+    path.setAttribute('d', `M${ox},${oy} C${ox+dx},${oy} ${ix-dx},${iy} ${ix},${iy}`);
+    path.setAttribute('fill','none');
+    path.setAttribute('stroke', edgeColor(t.condicion));
+    path.setAttribute('stroke-width','2');
+    path.setAttribute('marker-end','url(#arrow)');
+    path.setAttribute('opacity','.85');
+    if (_editMode) {
+      path.style.cursor = 'pointer'; path.style.strokeWidth = '3';
+      path.addEventListener('click', ev => { ev.stopPropagation();
+        if (confirm(`¿Borrar transición ${t.desde} → ${t.hasta}?`)) delEdge(t); });
+    }
+    svg.appendChild(path);
+    _edgeMap[t.desde + '->' + t.hasta] = path;
+    if (t.condicion && t.condicion !== 'always') {
+      const lbl = document.createElementNS(SVGNS, 'text');
+      lbl.setAttribute('class','edge-label');
+      lbl.setAttribute('x', (ox+ix)/2); lbl.setAttribute('y', (oy+iy)/2 - 6);
+      lbl.setAttribute('text-anchor','middle');
+      lbl.textContent = t.condicion;
+      svg.appendChild(lbl);
+    }
+  });
+}
+
+function renderWorkflow() {
   const world = document.getElementById('wf-world');
-  const svg   = document.getElementById('wf-edges');
-  // limpiar nodos previos (conservar el <svg> y el inspector)
   world.querySelectorAll('.wf-node').forEach(n => n.remove());
+  const svg = document.getElementById('wf-edges');
   svg.querySelectorAll('path.edge, text.edge-label').forEach(e => e.remove());
 
   if (!_proceso || !_proceso.nodos) {
@@ -590,46 +671,15 @@ async function loadWorkflow() {
       </div>`);
     return;
   }
+  ensurePositions();
+  drawEdges();
 
-  const nodos = _proceso.nodos;
-  const trans = _proceso.transiciones || [];
-  const posOf = id => NODE_POS[id] || { x:40, y:40 };
-  _edgeMap = {};
-
-  // 2. Dibujar aristas (transiciones)
-  trans.forEach(t => {
-    const a = posOf(t.desde), b = posOf(t.hasta);
-    const ox = a.x + NODE_W, oy = a.y + NODE_H/2;
-    const ix = b.x,          iy = b.y + NODE_H/2;
-    const dx = Math.max(60, Math.abs(ix - ox) * 0.5);
-    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
-    path.setAttribute('class','edge');
-    path.setAttribute('d', `M${ox},${oy} C${ox+dx},${oy} ${ix-dx},${iy} ${ix},${iy}`);
-    path.setAttribute('fill','none');
-    path.setAttribute('stroke', edgeColor(t.condicion));
-    path.setAttribute('stroke-width','2');
-    path.setAttribute('marker-end','url(#arrow)');
-    path.setAttribute('opacity','.85');
-    svg.appendChild(path);
-    _edgeMap[t.desde + '->' + t.hasta] = path;
-    if (t.condicion && t.condicion !== 'always') {
-      const lbl = document.createElementNS('http://www.w3.org/2000/svg','text');
-      lbl.setAttribute('class','edge-label');
-      lbl.setAttribute('x', (ox+ix)/2); lbl.setAttribute('y', (oy+iy)/2 - 6);
-      lbl.setAttribute('text-anchor','middle');
-      lbl.textContent = t.condicion;
-      svg.appendChild(lbl);
-    }
-  });
-
-  // 3. Dibujar nodos
-  nodos.forEach(n => {
-    const p = posOf(n.node_id);
+  _proceso.nodos.forEach(n => {
     const st = NODE_STYLE[n.node_id] || { icon:'⬤', color:'#6b7280' };
     const el = document.createElement('div');
-    el.className = 'wf-node';
+    el.className = 'wf-node' + (_editMode ? ' editable' : '');
     el.id = 'wfn-' + n.node_id;
-    el.style.left = p.x + 'px'; el.style.top = p.y + 'px';
+    el.style.left = n.x + 'px'; el.style.top = n.y + 'px';
     el.innerHTML = `
       <div class="wf-port in"></div>
       <div class="wf-ico" style="background:${st.color}22;color:${st.color}">${st.icon}</div>
@@ -638,8 +688,16 @@ async function loadWorkflow() {
         <div class="wf-type">${n.tipo || ''}</div>
       </div>
       <div class="wf-port out"></div>`;
+    el.addEventListener('mousedown', e => {
+      if (!_editMode) return;
+      if (e.target.classList.contains('wf-port') && e.target.classList.contains('out')) { startConnect(e, n); return; }
+      if (e.target.classList.contains('wf-port')) return;
+      startNodeDrag(e, n, el);
+    });
     el.addEventListener('click', e => {
       e.stopPropagation();
+      if (_nodeDragged) { _nodeDragged = false; return; }   // fue un drag, no un click
+      if (_editMode) { openInspectorEdit(n); return; }
       if (n.node_id === 'start') { openLaunch(); return; }
       const pend = _pendingByNode[n.node_id] || [];
       if (pend.length === 1) { openModal(pend[0], n.node_id, 'pendiente'); return; }
@@ -648,12 +706,137 @@ async function loadWorkflow() {
     });
     world.appendChild(el);
   });
-
   sizeWorld();
-  wfFit();
+}
 
-  // 4. Overlay de estado en vivo (instancias por nodo)
-  overlayLiveState();
+function redrawEdit() { renderWorkflow(); overlayLiveState(); }
+
+// ─── Edición: drag de nodos ───────────────────────────────
+function startNodeDrag(e, n, el) {
+  e.preventDefault(); e.stopPropagation();
+  const k = _wf.k, sx = e.clientX, sy = e.clientY, ox = n.x, oy = n.y;
+  const mv = ev => {
+    n.x = Math.round(ox + (ev.clientX - sx) / k);
+    n.y = Math.round(oy + (ev.clientY - sy) / k);
+    el.style.left = n.x + 'px'; el.style.top = n.y + 'px';
+    _nodeDragged = true; _wfDirty = true; document.getElementById('wf-save').classList.remove('hidden');
+    drawEdges();
+  };
+  const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); };
+  document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+}
+
+// ─── Edición: conectar arrastrando del puerto de salida ───
+function startConnect(e, from) {
+  e.preventDefault(); e.stopPropagation();
+  const svg = document.getElementById('wf-edges');
+  const temp = document.createElementNS(SVGNS, 'path');
+  temp.setAttribute('stroke', '#a855f7'); temp.setAttribute('stroke-width', '2.5');
+  temp.setAttribute('fill', 'none'); temp.setAttribute('stroke-dasharray', '6,4');
+  svg.appendChild(temp);
+  const ox = from.x + NODE_W, oy = from.y + NODE_H/2;
+  const toWorld = ev => {
+    const r = document.getElementById('wf-viewport').getBoundingClientRect();
+    return { x: (ev.clientX - r.left - _wf.x) / _wf.k, y: (ev.clientY - r.top - _wf.y) / _wf.k };
+  };
+  const mv = ev => { const p = toWorld(ev);
+    temp.setAttribute('d', `M${ox},${oy} C${ox+60},${oy} ${p.x-60},${p.y} ${p.x},${p.y}`); };
+  const up = ev => {
+    document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up);
+    temp.remove();
+    const tgt = ev.target.closest('.wf-node');
+    if (tgt) { const toId = tgt.id.replace('wfn-',''); if (toId !== from.node_id) addEdge(from.node_id, toId); }
+  };
+  document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+}
+
+// ─── Edición: alta/baja de nodos y transiciones ───────────
+function markDirty() { _wfDirty = true; document.getElementById('wf-save')?.classList.remove('hidden'); }
+function addEdge(desde, hasta) {
+  _proceso.transiciones = _proceso.transiciones || [];
+  if (_proceso.transiciones.some(t => t.desde === desde && t.hasta === hasta)) return;
+  _proceso.transiciones.push({ desde, hasta, condicion: 'always' });
+  markDirty(); redrawEdit(); toast(`Conexión ${desde} → ${hasta}`);
+}
+function delEdge(t) {
+  _proceso.transiciones = (_proceso.transiciones || []).filter(x => !(x.desde === t.desde && x.hasta === t.hasta));
+  markDirty(); redrawEdit();
+}
+function addNode(tipo) {
+  const id = (prompt('node_id del nuevo nodo:', tipo + '_' + ((_proceso.nodos?.length || 0) + 1)) || '').trim();
+  if (!id) return;
+  if (nodeById(id)) { alert('Ya existe un nodo con ese id'); return; }
+  const vp = document.getElementById('wf-viewport');
+  const cx = (vp.clientWidth/2 - _wf.x) / _wf.k, cy = (vp.clientHeight/2 - _wf.y) / _wf.k;
+  _proceso.nodos.push({ node_id: id, tipo, nombre: id, x: Math.round(cx - NODE_W/2), y: Math.round(cy - NODE_H/2) });
+  markDirty(); redrawEdit(); openInspectorEdit(nodeById(id)); toast(`Nodo "${id}" agregado`);
+}
+function delNode(id) {
+  _proceso.nodos = _proceso.nodos.filter(n => n.node_id !== id);
+  _proceso.transiciones = (_proceso.transiciones || []).filter(t => t.desde !== id && t.hasta !== id);
+  closeInspector(); markDirty(); redrawEdit();
+}
+
+// ─── Edición: modo y guardado ─────────────────────────────
+function toggleEdit() {
+  _editMode = !_editMode;
+  document.getElementById('wf-editbar').classList.toggle('hidden', !_editMode);
+  document.getElementById('wf-edit-btn').textContent = _editMode ? '✓ Listo' : '✏️ Editar';
+  document.getElementById('wf-viewport').classList.toggle('editing', _editMode);
+  if (!_editMode) closeInspector();
+  redrawEdit();
+  if (_editMode) toast('Modo edición: arrastrá nodos · conectá desde el punto morado derecho · clic para editar.', 4500);
+}
+async function saveWorkflow() {
+  if (!_proceso || !_proceso.proceso_id) { toast('No hay proceso para guardar'); return; }
+  try {
+    const res = await fetch(`${BASE}/api/${encodeURIComponent(TENANT)}/processes`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(_proceso) }).then(r => r.json());
+    if (res.ok) { _wfDirty = false; document.getElementById('wf-save').classList.add('hidden'); toast('💾 Proceso guardado en MongoDB'); }
+    else toast('Error al guardar: ' + JSON.stringify(res));
+  } catch (e) { toast('Error: ' + e); }
+}
+
+// ─── Inspector editable ───────────────────────────────────
+function openInspectorEdit(n) {
+  document.querySelectorAll('.wf-node').forEach(x => x.classList.remove('sel'));
+  document.getElementById('wfn-' + n.node_id)?.classList.add('sel');
+  const st = NODE_STYLE[n.node_id] || { icon:'⬤', color:'#6b7280' };
+  const ico = document.getElementById('ins-ico');
+  ico.textContent = st.icon; ico.style.background = st.color + '22'; ico.style.color = st.color;
+  document.getElementById('ins-title').textContent = 'Editar nodo';
+  document.getElementById('ins-type').textContent = n.node_id;
+  const tipos = ['start','form','decision','task','notification','end'];
+  const outs = (_proceso.transiciones || []).filter(t => t.desde === n.node_id);
+  document.getElementById('ins-body').innerHTML = `
+    <div class="ins-field"><div class="k">node_id</div>
+      <input class="ins-input" value="${n.node_id}" onchange="editNodeId('${n.node_id}', this.value)"></div>
+    <div class="ins-field"><div class="k">nombre</div>
+      <input class="ins-input" value="${n.nombre || ''}" onchange="editNodeProp('${n.node_id}','nombre',this.value)"></div>
+    <div class="ins-field"><div class="k">tipo</div>
+      <select class="ins-input" onchange="editNodeProp('${n.node_id}','tipo',this.value)">
+        ${tipos.map(t => `<option ${n.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+    <div class="ins-field"><div class="k">transiciones de salida</div><div>
+      ${outs.map(o => `<div class="ins-edge"><span style="color:var(--muted)">→</span> <code style="color:var(--blue)">${o.hasta}</code>
+        <input class="ins-cond" value="${o.condicion || 'always'}" onchange="editCond('${o.desde}','${o.hasta}',this.value)">
+        <button class="x" onclick="delEdge({desde:'${o.desde}',hasta:'${o.hasta}'})">×</button></div>`).join('')
+        || '<small style="color:var(--muted)">Sin salidas. Conectá arrastrando desde el punto morado derecho.</small>'}
+    </div></div>
+    <button class="btn btn-sm" style="margin-top:12px;background:rgba(239,68,68,.2);color:var(--red);border:1px solid rgba(239,68,68,.3)" onclick="delNode('${n.node_id}')">🗑 Eliminar nodo</button>`;
+  document.getElementById('wf-inspector').classList.add('open');
+}
+function editNodeProp(id, key, val) { const n = nodeById(id); if (n) { n[key] = val; markDirty(); redrawEdit(); } }
+function editNodeId(oldId, newId) {
+  newId = (newId || '').trim();
+  if (!newId || newId === oldId) return;
+  if (nodeById(newId)) { alert('Ya existe un nodo con ese id'); return; }
+  const n = nodeById(oldId); n.node_id = newId;
+  (_proceso.transiciones || []).forEach(t => { if (t.desde === oldId) t.desde = newId; if (t.hasta === oldId) t.hasta = newId; });
+  markDirty(); redrawEdit(); openInspectorEdit(n);
+}
+function editCond(desde, hasta, val) {
+  const t = (_proceso.transiciones || []).find(x => x.desde === desde && x.hasta === hasta);
+  if (t) { t.condicion = val || 'always'; markDirty(); redrawEdit(); }
 }
 
 async function overlayLiveState() {
@@ -780,18 +963,22 @@ let _wf = { x:0, y:0, k:1 };
 function applyWf() {
   document.getElementById('wf-world').style.transform = `translate(${_wf.x}px,${_wf.y}px) scale(${_wf.k})`;
 }
+function wfPositions() {
+  const ps = (_proceso?.nodos || []).filter(n => n.x != null).map(n => ({ x: n.x, y: n.y }));
+  return ps.length ? ps : Object.values(NODE_POS);
+}
 function sizeWorld() {
   // dimensiona el SVG para que abarque todos los nodos
   let maxX = 0, maxY = 0;
-  Object.values(NODE_POS).forEach(p => { maxX = Math.max(maxX, p.x + NODE_W); maxY = Math.max(maxY, p.y + NODE_H); });
+  wfPositions().forEach(p => { maxX = Math.max(maxX, p.x + NODE_W); maxY = Math.max(maxY, p.y + NODE_H); });
   const svg = document.getElementById('wf-edges');
-  svg.setAttribute('width', maxX + 60); svg.setAttribute('height', maxY + 60);
+  svg.setAttribute('width', maxX + 80); svg.setAttribute('height', maxY + 80);
 }
 function wfZoom(d) { _wf.k = Math.min(2, Math.max(0.4, _wf.k + d)); applyWf(); }
 function wfFit() {
   const vp = document.getElementById('wf-viewport');
   let maxX = 0, maxY = 0, minX = 1e9, minY = 1e9;
-  Object.values(NODE_POS).forEach(p => {
+  wfPositions().forEach(p => {
     minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
     maxX = Math.max(maxX, p.x + NODE_W); maxY = Math.max(maxY, p.y + NODE_H);
   });
