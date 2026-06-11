@@ -603,35 +603,44 @@ def completar_tarea(tenant_id: str, task_id: str, body: CompletarTarea):
 # ═══════════════════════════════════════════════════════════════
 @app.get("/api/status")
 def api_status():
+    """Health check + evaluación de conectividad: mide la latencia (ms) de cada motor.
+    (Clase 13 — Evaluación de la conectividad a los distintos productos.)"""
+    import time
     out = {}
-    try:
+
+    def measure(key, label, fn):
+        t0 = time.perf_counter()
+        try:
+            extra = fn() or {}
+            out[key] = {"ok": True, "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
+                        "label": label, **extra}
+        except Exception as e:
+            out[key] = {"ok": False, "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
+                        "error": str(e), "label": label}
+
+    def f_proc():
         mongo_proc().admin.command("ping")
-        n = procesos_col().count_documents({})
-        out["mongodb_procesos"] = {"ok": True, "docs": n, "label": "MongoDB Procesos"}
-    except Exception as e:
-        out["mongodb_procesos"] = {"ok": False, "error": str(e), "label": "MongoDB Procesos"}
-    try:
-        n = instancias_col().count_documents({})
-        out["mongodb_instancias"] = {"ok": True, "docs": n, "label": "MongoDB Instancias"}
-    except Exception as e:
-        out["mongodb_instancias"] = {"ok": False, "error": str(e), "label": "MongoDB Instancias"}
-    try:
+        return {"docs": procesos_col().count_documents({})}
+    measure("mongodb_procesos", "MongoDB Procesos", f_proc)
+
+    measure("mongodb_instancias", "MongoDB Instancias",
+            lambda: {"docs": instancias_col().count_documents({})})
+
+    def f_redis():
         rdb().ping()
-        out["redis"] = {"ok": True, "keys": rdb().dbsize(), "label": "Redis Caché"}
-    except Exception as e:
-        out["redis"] = {"ok": False, "error": str(e), "label": "Redis Caché"}
-    try:
-        n = cass().execute("SELECT COUNT(*) FROM flowops.eventos_instancia").one()[0]
-        out["cassandra"] = {"ok": True, "docs": int(n), "label": "Cassandra Auditoría"}
-    except Exception as e:
-        out["cassandra"] = {"ok": False, "error": str(e), "label": "Cassandra Auditoría"}
-    try:
+        return {"keys": rdb().dbsize()}
+    measure("redis", "Redis Caché", f_redis)
+
+    measure("cassandra", "Cassandra Auditoría",
+            lambda: {"docs": int(cass().execute("SELECT COUNT(*) FROM flowops.eventos_instancia").one()[0])})
+
+    def f_neo():
         with neo4j().session() as s:
             nodos = s.run("MATCH (n) RETURN count(n) AS c").single()["c"]
             rels  = s.run("MATCH ()-[r]->() RETURN count(r) AS c").single()["c"]
-        out["neo4j"] = {"ok": True, "nodos": nodos, "relaciones": rels, "label": "Neo4j Grafo"}
-    except Exception as e:
-        out["neo4j"] = {"ok": False, "error": str(e), "label": "Neo4j Grafo"}
+        return {"nodos": nodos, "relaciones": rels}
+    measure("neo4j", "Neo4j Grafo", f_neo)
+
     return out
 
 class NuevoTenant(BaseModel):

@@ -257,7 +257,9 @@
   <!-- ─── WORKFLOW (canvas) ─────────────────────────────── -->
   <div id="tab-workflow" class="tab canvas-tab active">
     <div class="wf-toolbar">
-      <button class="btn btn-sm" style="background:var(--green);color:#04210f;font-weight:700" onclick="openLaunch()">▶ Ejecutar workflow</button>
+      <button id="wf-exec-btn" class="btn btn-sm" style="background:var(--green);color:#04210f;font-weight:700" onclick="openLaunch()">▶ Ejecutar workflow</button>
+      <select id="proc-select" class="ff-select" style="font-size:.75rem;padding:4px 6px" onchange="onProcChange()" title="Proceso"></select>
+      <button class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="nuevoProceso()">➕ Nuevo proceso</button>
       <button class="btn btn-sm btn-primary" onclick="loadWorkflow()">↺ Recargar</button>
       <button class="zbtn" onclick="wfZoom(-0.1)">−</button>
       <button class="zbtn" onclick="wfFit()">⊡</button>
@@ -524,6 +526,7 @@ async function onTenantChange() {
     TENANT = sel.value;
   }
   _proceso = null;                 // fuerza recargar la definición del nuevo tenant
+  PROCESO_ID = null;               // cada empresa tiene sus propios procesos
   await loadTenants();             // re-renderiza el dropdown
   const active = document.querySelector('.side-nav button.active');
   switchTab(active ? active.dataset.tab : 'workflow', active);
@@ -586,6 +589,7 @@ function badge(est) {
 //  WORKFLOW CANVAS
 // ═══════════════════════════════════════════════════════════
 let _proceso = null;
+let PROCESO_ID = null;
 let _edgeMap = {};
 let _pendingByNode = {};
 let _editMode = false;
@@ -615,10 +619,51 @@ function ensurePositions() {
 }
 
 async function loadWorkflow() {
-  if (!_proceso) _proceso = await fetch(api('/api/proceso')).then(r => r.json()).catch(() => null);
+  if (!_proceso) {
+    const url = PROCESO_ID
+      ? `${BASE}/api/${encodeURIComponent(TENANT)}/processes/${encodeURIComponent(PROCESO_ID)}`
+      : api('/api/proceso');
+    _proceso = await fetch(url).then(r => r.json()).catch(() => null);
+    if (_proceso && _proceso.proceso_id) PROCESO_ID = _proceso.proceso_id;
+  }
   renderWorkflow();
   wfFit();
   overlayLiveState();
+  loadProcesos();
+  updateExecBtn();
+}
+
+// ─── Selector de proceso + nuevo proceso ──────────────────
+async function loadProcesos() {
+  const sel = document.getElementById('proc-select');
+  if (!sel) return;
+  const list = await fetch(`${BASE}/api/${encodeURIComponent(TENANT)}/processes`).then(r => r.json()).catch(() => []);
+  if (!PROCESO_ID && list.length) PROCESO_ID = list[0].proceso_id;
+  sel.innerHTML = (list.length
+    ? list.map(p => `<option value="${p.proceso_id}" ${p.proceso_id === PROCESO_ID ? 'selected' : ''}>${p.nombre || p.proceso_id}</option>`).join('')
+    : '<option value="">(sin procesos)</option>');
+}
+function onProcChange() {
+  PROCESO_ID = document.getElementById('proc-select').value;
+  _proceso = null;
+  loadWorkflow();
+}
+// La ejecución sólo aplica al proceso de vacaciones (el motor BPM es específico)
+function updateExecBtn() {
+  const b = document.getElementById('wf-exec-btn');
+  if (b) b.style.display = (!PROCESO_ID || PROCESO_ID === 'proc_vacaciones_v1') ? '' : 'none';
+}
+function nuevoProceso() {
+  const id = (prompt('proceso_id del nuevo proceso:', 'proc_nuevo_v1') || '').trim();
+  if (!id) return;
+  const nombre = (prompt('Nombre del proceso:', id) || id).trim();
+  PROCESO_ID = id;
+  _proceso = { tenant_id: TENANT, proceso_id: id, nombre, version: 1, activo: true,
+    nodos: [{ node_id: 'start', tipo: 'start', nombre: 'Inicio', x: 80, y: 200 }], transiciones: [] };
+  renderWorkflow(); wfFit(); updateExecBtn();
+  if (!_editMode) toggleEdit();
+  markDirty();
+  toast(`Nuevo proceso "${id}" — agregá nodos, conectá y guardá 💾`, 4500);
 }
 
 function drawEdges() {
@@ -792,7 +837,7 @@ async function saveWorkflow() {
   try {
     const res = await fetch(`${BASE}/api/${encodeURIComponent(TENANT)}/processes`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(_proceso) }).then(r => r.json());
-    if (res.ok) { _wfDirty = false; document.getElementById('wf-save').classList.add('hidden'); toast('💾 Proceso guardado en MongoDB'); }
+    if (res.ok) { _wfDirty = false; document.getElementById('wf-save').classList.add('hidden'); toast('💾 Proceso guardado en MongoDB'); loadProcesos(); updateExecBtn(); }
     else toast('Error al guardar: ' + JSON.stringify(res));
   } catch (e) { toast('Error: ' + e); }
 }
@@ -1026,10 +1071,14 @@ async function loadDashboard() {
     const col = colors[k] || '--accent';
     const stat = v.ok ? (v.docs !== undefined ? v.docs + ' docs' : v.keys !== undefined ? v.keys + ' keys'
          : v.nodos !== undefined ? v.nodos + ' nodos' : 'OK') : 'ERROR';
+    const lat = v.latency_ms !== undefined
+      ? `<div class="db-sub">⏱ ${v.latency_ms} ms <span style="color:${v.latency_ms < 15 ? 'var(--green)' : v.latency_ms < 60 ? 'var(--yellow)' : 'var(--red)'}">●</span></div>`
+      : '';
     html += `<div class="db-card" style="border-top:3px solid var(${col})">
         <div class="db-title">${icons[k] || ''} ${v.label}</div>
         <div class="db-stat" style="color:var(${col})">${stat}</div>
         <div class="db-sub"><span class="dot ${v.ok ? 'ok' : 'fail'}"></span>${v.ok ? 'Conectado' : v.error || 'Sin conexión'}</div>
+        ${lat}
         ${v.relaciones !== undefined ? `<div class="db-sub">${v.relaciones} relaciones</div>` : ''}
       </div>`;
   }
