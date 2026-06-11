@@ -7,6 +7,11 @@ import subprocess
 import sys
 import time
 
+# Modo limpio: carga solo la estructura mínima (definición de proceso, empleados,
+# roles, saldos) SIN instancias/eventos/solicitudes demo. Útil para correr todo
+# el proceso desde cero en la demo.  Uso:  python load_all.py --limpio
+MINIMAL = "--limpio" in sys.argv or "--minimal" in sys.argv
+
 # ── Colores en consola ────────────────────────────────────────
 def ok(msg):    print(f"  \033[92m✔ {msg}\033[0m")
 def info(msg):  print(f"  \033[93m→ {msg}\033[0m")
@@ -36,8 +41,10 @@ def wait_for(name, test_cmd, retries=30, delay=3):
 # ═══════════════════════════════════════════════════════════════
 print()
 print("=" * 60)
-print("  FlowOps — Carga inicial de datos")
+print("  FlowOps — Carga inicial de datos" + ("  [MODO LIMPIO]" if MINIMAL else ""))
 print("=" * 60)
+if MINIMAL:
+    print("  Solo estructura: definición + empleados + saldos (sin instancias demo)")
 
 # ── 1. Esperar containers ─────────────────────────────────────
 print("\n[ 1/4 ] Esperando containers...")
@@ -107,6 +114,10 @@ MATCH (a:NodoProceso {node_id: 'aprobacion_gerencia'}),  (b:NodoProceso {node_id
 MATCH (a:NodoProceso {node_id: 'aprobacion_gerencia'}),  (b:NodoProceso {node_id: 'notif_rechazo'})       MERGE (a)-[:SIGUIENTE {condicion: 'rechazado'}]->(b);
 MATCH (a:NodoProceso {node_id: 'notif_aprobacion'}),     (b:NodoProceso {node_id: 'end'})                 MERGE (a)-[:SIGUIENTE {condicion: 'always'}]->(b);
 MATCH (a:NodoProceso {node_id: 'notif_rechazo'}),        (b:NodoProceso {node_id: 'end'})                 MERGE (a)-[:SIGUIENTE {condicion: 'always'}]->(b);
+"""
+
+# Solicitudes demo (instancias ya iniciadas/finalizadas). Se omiten con --limpio.
+CYPHER_DEMO = """
 MERGE (s1:Solicitud {instance_id: 'inst_vac_2026_001'}) SET s1.estado = 'aprobada',  s1.dias_solicitados = 15, s1.fecha_inicio = '2026-07-01', s1.fecha_fin = '2026-07-18', s1.created_at = '2026-06-10T09:00:00Z';
 MERGE (s2:Solicitud {instance_id: 'inst_vac_2026_002'}) SET s2.estado = 'rechazada', s2.dias_solicitados = 12, s2.fecha_inicio = '2026-07-15', s2.fecha_fin = '2026-07-29', s2.created_at = '2026-06-11T10:00:00Z';
 MERGE (s3:Solicitud {instance_id: 'inst_vac_2026_003'}) SET s3.estado = 'pendiente', s3.dias_solicitados = 5,  s3.fecha_inicio = '2026-08-01', s3.fecha_fin = '2026-08-07',  s3.created_at = '2026-06-12T08:00:00Z';
@@ -122,9 +133,9 @@ MATCH (e:Empleado {empleado_id: 'emp_005'}), (s:Solicitud {instance_id: 'inst_va
 run(
     ["docker", "exec", "-i", "flowops-grafo",
      "cypher-shell", "-u", "neo4j", "-p", "flowops123"],
-    input_text=CYPHER
+    input_text=CYPHER if MINIMAL else CYPHER + CYPHER_DEMO
 )
-ok("Neo4j cargado")
+ok("Neo4j cargado" + (" (mínimo)" if MINIMAL else ""))
 
 # ── 3. MongoDB ────────────────────────────────────────────────
 print("\n[ 3/4 ] MongoDB — definición del proceso...")
@@ -173,6 +184,12 @@ db.procesos.insertOne({
     { desde: "notif_rechazo",       hasta: "end",                 condicion: "always" }
   ]
 });
+
+// Limpieza de instancias y tareas previas (las "cosas raras" acumuladas).
+// El arranque de la API resiembra 3 instancias demo, salvo FLOWOPS_SEED_DEMO=0.
+db = db.getSiblingDB('flowops_instancias');
+db.instancias.drop();
+db.tareas.drop();
 """
 
 run(
@@ -202,7 +219,11 @@ CREATE TABLE eventos_instancia (
   detalle     TEXT,
   PRIMARY KEY ((tenant_id, instance_id), timestamp, event_id)
 ) WITH CLUSTERING ORDER BY (timestamp ASC, event_id ASC);
+"""
 
+# Eventos demo de auditoría. Se omiten con --limpio (la tabla queda vacía).
+CQL_DEMO = """
+USE flowops;
 INSERT INTO eventos_instancia (tenant_id,instance_id,timestamp,event_id,nodo,actor_id,accion,detalle) VALUES ('empresa_01','inst_vac_2026_001','2026-06-10 09:00:00+0000',uuid(),'start',null,'inicio_proceso',null);
 INSERT INTO eventos_instancia (tenant_id,instance_id,timestamp,event_id,nodo,actor_id,accion,detalle) VALUES ('empresa_01','inst_vac_2026_001','2026-06-10 09:01:00+0000',uuid(),'formulario','emp_001','formulario_enviado','{"fecha_inicio":"2026-07-01","fecha_fin":"2026-07-18","dias_solicitados":15}');
 INSERT INTO eventos_instancia (tenant_id,instance_id,timestamp,event_id,nodo,actor_id,accion,detalle) VALUES ('empresa_01','inst_vac_2026_001','2026-06-10 09:02:00+0000',uuid(),'validacion_saldo','sistema','saldo_suficiente','{"saldo_disponible":15,"dias_solicitados":15}');
@@ -224,19 +245,24 @@ INSERT INTO eventos_instancia (tenant_id,instance_id,timestamp,event_id,nodo,act
 
 run(
     ["docker", "exec", "-i", "flowops-auditoria", "cqlsh"],
-    input_text=CQL
+    input_text=CQL if MINIMAL else CQL + CQL_DEMO
 )
-ok("Cassandra cargada")
+ok("Cassandra cargada" + (" (mínimo)" if MINIMAL else ""))
 
 # ── Redis ─────────────────────────────────────────────────────
 print("\n[ + ] Redis — estado actual y saldos...")
 
-redis_commands = [
-    ["FLUSHALL"],
-    ["HSET", "instancia:inst_vac_2026_001", "estado", "aprobada",  "nodo_actual", "end",                  "updated_at", "2026-06-10T11:01:30Z"],
-    ["HSET", "instancia:inst_vac_2026_002", "estado", "rechazada", "nodo_actual", "end",                  "updated_at", "2026-06-11T10:03:00Z", "motivo_rechazo", "saldo_insuficiente"],
-    ["HSET", "instancia:inst_vac_2026_003", "estado", "pendiente", "nodo_actual", "aprobacion_gerencia",  "updated_at", "2026-06-12T08:03:00Z"],
-    ["SET",  "empleado:emp_001:saldo_dias", "0"],
+redis_commands = [["FLUSHALL"]]
+if not MINIMAL:
+    # Estado cacheado de las instancias demo (en --limpio no se cargan)
+    redis_commands += [
+        ["HSET", "instancia:inst_vac_2026_001", "estado", "aprobada",  "nodo_actual", "end",                  "updated_at", "2026-06-10T11:01:30Z"],
+        ["HSET", "instancia:inst_vac_2026_002", "estado", "rechazada", "nodo_actual", "end",                  "updated_at", "2026-06-11T10:03:00Z", "motivo_rechazo", "saldo_insuficiente"],
+        ["HSET", "instancia:inst_vac_2026_003", "estado", "pendiente", "nodo_actual", "aprobacion_gerencia",  "updated_at", "2026-06-12T08:03:00Z"],
+    ]
+redis_commands += [
+    # En --limpio emp_001 arranca con saldo completo (15) para poder solicitar desde cero
+    ["SET",  "empleado:emp_001:saldo_dias", "15" if MINIMAL else "0"],
     ["SET",  "empleado:emp_002:saldo_dias", "20"],
     ["SET",  "empleado:emp_003:saldo_dias", "25"],
     ["SET",  "empleado:emp_004:saldo_dias", "10"],
@@ -277,5 +303,9 @@ except: print("  Redis     → (no se pudo verificar)")
 
 print()
 print("\033[92m  Todo cargado correctamente.\033[0m")
+if MINIMAL:
+    print()
+    print("  Para que la API NO resiembre instancias demo, levantala así:")
+    print("\033[93m    $env:FLOWOPS_SEED_DEMO=0; python -m uvicorn main:app --port 8000 --reload\033[0m")
 print("=" * 60)
 print()

@@ -653,17 +653,47 @@ function updateExecBtn() {
   const b = document.getElementById('wf-exec-btn');
   if (b) b.style.display = (!PROCESO_ID || PROCESO_ID === 'proc_vacaciones_v1') ? '' : 'none';
 }
+// Esqueleto por defecto de un proceso nuevo: flujo completo y editable, con el
+// nodo formulario ya poblado de campos (para que el form no quede vacío).
+function procesoSkeleton(tenant, id, nombre) {
+  return {
+    tenant_id: tenant, proceso_id: id, nombre, version: 1, activo: true,
+    descripcion: '',
+    nodos: [
+      { node_id: 'start',         tipo: 'start',        nombre: 'Inicio',           x: 60,   y: 220 },
+      { node_id: 'formulario',    tipo: 'form',         nombre: 'Formulario',       x: 300,  y: 220,
+        rol_ejecutor: 'empleado',
+        campos: [
+          { name: 'solicitante_id', label: 'Solicitante ID', type: 'text',     required: true,  placeholder: 'emp_001' },
+          { name: 'fecha_inicio',   label: 'Fecha inicio',   type: 'date',     required: true },
+          { name: 'fecha_fin',      label: 'Fecha fin',      type: 'date',     required: true },
+          { name: 'detalle',        label: 'Detalle',        type: 'textarea', required: false }
+        ] },
+      { node_id: 'aprobacion',    tipo: 'task',         nombre: 'Aprobación',       x: 540,  y: 220,
+        rol_ejecutor: 'gerencia', acciones: ['aprobar', 'rechazar'], sla_horas: 48 },
+      { node_id: 'notificacion',  tipo: 'notification', nombre: 'Notificación',     x: 780,  y: 220,
+        destinatarios: ['empleado'] },
+      { node_id: 'end',           tipo: 'end',          nombre: 'Fin',              x: 1020, y: 220 }
+    ],
+    transiciones: [
+      { desde: 'start',        hasta: 'formulario',   condicion: 'always' },
+      { desde: 'formulario',   hasta: 'aprobacion',   condicion: 'always' },
+      { desde: 'aprobacion',   hasta: 'notificacion', condicion: 'aprobado' },
+      { desde: 'notificacion', hasta: 'end',          condicion: 'always' }
+    ]
+  };
+}
+
 function nuevoProceso() {
   const id = (prompt('proceso_id del nuevo proceso:', 'proc_nuevo_v1') || '').trim();
   if (!id) return;
   const nombre = (prompt('Nombre del proceso:', id) || id).trim();
   PROCESO_ID = id;
-  _proceso = { tenant_id: TENANT, proceso_id: id, nombre, version: 1, activo: true,
-    nodos: [{ node_id: 'start', tipo: 'start', nombre: 'Inicio', x: 80, y: 200 }], transiciones: [] };
+  _proceso = procesoSkeleton(TENANT, id, nombre);
   renderWorkflow(); wfFit(); updateExecBtn();
   if (!_editMode) toggleEdit();
   markDirty();
-  toast(`Nuevo proceso "${id}" — agregá nodos, conectá y guardá 💾`, 4500);
+  toast(`Nuevo proceso "${id}" creado con estructura base — editá y guardá 💾`, 4500);
 }
 
 function drawEdges() {

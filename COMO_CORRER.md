@@ -55,6 +55,36 @@ Documentación interactiva (Swagger) autogenerada en **http://localhost:8000/doc
 | GET | `/api/grafo` | Relaciones (Empleado)-[r]->(Solicitud) en Neo4j |
 | GET | `/api/redis` | Todas las claves Redis |
 
+## Reset de datos / demo limpia
+
+`load_all.py` es **idempotente**: borra antes de cargar en cada motor y ahora
+también limpia las colecciones `instancias` y `tareas` de Mongo (las "cosas
+raras" acumuladas). Dos modos:
+
+```powershell
+# A) Cargar con datos demo (3 instancias ya iniciadas/terminadas)
+$env:PYTHONUTF8=1; python load_all.py
+python -m uvicorn main:app --port 8000 --reload
+
+# B) Demo LIMPIA: solo estructura (definición + empleados + saldos), sin instancias
+$env:PYTHONUTF8=1; python load_all.py --limpio
+$env:FLOWOPS_SEED_DEMO=0; python -m uvicorn main:app --port 8000 --reload
+```
+
+- **`--limpio`** omite las solicitudes demo de Neo4j, los eventos de Cassandra y
+  los hashes de instancia de Redis; deja el saldo de `emp_001` en 15 para poder
+  solicitar desde cero.
+- **`FLOWOPS_SEED_DEMO=0`** evita que el arranque de la API resiembre las 3
+  instancias demo. Así la base queda vacía de ejecuciones y podés correr todo el
+  proceso en vivo.
+
+Para un reset **total** (borra volúmenes Docker): `docker compose down -v` →
+`docker compose up -d` → esperar ~30 s → `python load_all.py [--limpio]`.
+
+> **Nuevo proceso desde el front:** el botón ➕ *Nuevo proceso* ya crea un
+> esqueleto completo (start → formulario con campos → aprobación → notificación →
+> end), así el formulario no queda vacío. Editás, conectás y guardás con 💾.
+
 ## Flujo del proceso
 
 ```

@@ -208,7 +208,7 @@ def core_eventos(tenant_id: str, iid: str) -> list:
 # ═══════════════════════════════════════════════════════════════
 def seed_and_migrate():
     try:
-        if repo.count_instancias() == 0:
+        if config.SEED_DEMO_INSTANCES and repo.count_instancias() == 0:
             base = {"proceso_id": "proc_vacaciones_v1", "tenant_id": config.DEFAULT_TENANT}
             repo.seed_instancias([
                 {**base, "instance_id": "inst_vac_2026_001", "solicitante_id": "emp_001",

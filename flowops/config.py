@@ -32,6 +32,10 @@ CASS_KEYSPACE  = "flowops"
 DEFAULT_TENANT = "empresa_01"
 TENANT_ID      = DEFAULT_TENANT  # compat
 
+# Si FLOWOPS_SEED_DEMO="0" el arranque NO siembra las 3 instancias demo:
+# deja la base limpia para correr todo el proceso desde cero (demo en vivo).
+SEED_DEMO_INSTANCES = os.getenv("FLOWOPS_SEED_DEMO", "1") != "0"
+
 # Proceso estándar que toda empresa tiene disponible
 STD_PROCESS_ID = "proc_vacaciones_v1"
 
