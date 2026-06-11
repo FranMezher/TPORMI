@@ -77,6 +77,42 @@ Si un motor **secundario** (Redis/Cassandra/Neo4j) falla, la operación continú
 5. Cassandra → evento de decisión + notificación.
 6. Neo4j → relación `(:Empleado)-[:APRUEBA|RECHAZA]->(:Solicitud)`.
 
+## Arquitectura de la aplicación por capas (Clase 12 — Acceso a BD desde aplicaciones)
+
+El backend no es un único script: está separado en **capas** con una única
+dirección de dependencia (cada capa solo conoce a la de abajo). Es el patrón de
+acceso a datos visto en la Clase 12.
+
+```
+  Presentación   flowops/routers/spec.py · classic.py   (endpoints FastAPI, finos)
+       │   depende de ▼
+  Lógica         flowops/services.py                    (core_*, reglas, escritura distribuida)
+       │   depende de ▼
+  Acceso a datos flowops/repositories.py                (DAO: una sección por motor)
+       │   depende de ▼
+  Conexión       flowops/database.py                    (factories lazy a los 5 motores)
+       │   depende de ▼
+  Configuración  flowops/config.py                      (hosts, puertos, constantes)
+
+  Contratos      flowops/schemas.py                     (modelos Pydantic, transversal)
+  Ensamblado     main.py                                (crea la app, monta routers, seed)
+```
+
+| Capa | Archivo | Responsabilidad |
+|------|---------|-----------------|
+| Configuración | `flowops/config.py` | Parámetros de conexión (env vars) y constantes del dominio. |
+| Conexión | `flowops/database.py` | Conexiones *lazy* + cache (singleton) a Mongo/Redis/Cassandra/Neo4j; accesos a colecciones. |
+| Acceso a datos (DAO) | `flowops/repositories.py` | Una función por operación contra **un** motor; no conoce reglas de negocio. |
+| Lógica de negocio | `flowops/services.py` | Orquesta repositorios: `core_crear_instancia`, `core_avanzar`, idempotencia, escritura distribuida best-effort. |
+| Contratos | `flowops/schemas.py` | DTO Pydantic (validación de entrada/salida). |
+| Presentación | `flowops/routers/*.py` | Endpoints HTTP; validan y delegan en servicios/repos. |
+| Ensamblado | `main.py` | Crea la app, incluye routers y dispara el seed de arranque. |
+
+**Para el oral:** *"separé el acceso a datos en capas como en la Clase 12: el router
+no toca la base, llama al servicio; el servicio orquesta los repositorios; cada
+repositorio (DAO) habla con un solo motor. Cambiar de motor o de host se toca en
+una sola capa."*
+
 ## Tecnologías
 
 | Capa | Tecnología |

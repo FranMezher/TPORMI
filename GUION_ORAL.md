@@ -85,6 +85,7 @@
 
 ## 6.qua Alineación con las clases 12 y 13
 - **Clase 12 (Acceso a BD desde apps)**: API unificada (FastAPI = gateway que orquesta los 5 motores), drivers oficiales, cache-aside (Redis), event log (Cassandra), escritura best-effort con degradación. El editor de procesos + selector + "Nuevo proceso" demuestran "procesos como datos configurables".
+  - **Arquitectura por capas** (lo que pidió el profe): el backend está separado en `flowops/` → `config` (parámetros) → `database` (conexiones lazy) → `repositories` (DAO, uno por motor) → `services` (lógica `core_*`) → `routers` (endpoints). `main.py` solo ensambla. Frase: *"el router no toca la base: llama al servicio, el servicio orquesta repositorios, y cada DAO habla con un solo motor — dependencia en una sola dirección"*. Mostrar el árbol de `flowops/` y `docs/ARQUITECTURA.md` (sección "Arquitectura por capas").
 - **Clase 13 (Evaluación de la conectividad a los distintos productos)**: el **Dashboard mide la latencia (ms) de cada motor** en `/api/status` (verde <15ms, amarillo <60ms, rojo). Es literalmente la evaluación de conectividad de la clase. Frase: *"acá ves la latencia de conexión a cada producto, que es la métrica central de la clase de evaluación de conectividad"*.
 
 ## 7. Glosario express (por si te traban)

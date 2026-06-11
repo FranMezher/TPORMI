@@ -110,6 +110,25 @@ Rutas multi-tenant según el spec (ver todas en `/docs`):
 
 ---
 
+## Estructura del código (arquitectura por capas)
+
+El backend está separado en capas (patrón de acceso a datos, Clase 12):
+
+```
+main.py                 # ensambla la app, monta routers y corre el seed
+flowops/
+  config.py             # parámetros de conexión + constantes
+  database.py           # conexiones lazy a los 5 motores + colecciones
+  repositories.py       # acceso a datos (DAO: una sección por motor)
+  schemas.py            # modelos Pydantic (contratos de la API)
+  services.py           # lógica de negocio (core_* + escritura distribuida)
+  routers/
+    spec.py             # rutas multi-tenant /api/{tenant_id}/...
+    classic.py          # rutas clásicas + /api/status + tenants
+```
+
+Dependencia en una sola dirección: `routers → services → repositories → database → config`. Detalle en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
+
 ## Documentación
 
 - [docs/PLAN_DE_SISTEMAS.md](docs/PLAN_DE_SISTEMAS.md) — dominio, persistencia, CAP, decisiones
