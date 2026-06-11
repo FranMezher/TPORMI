@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🎬 Storytelling — Defensa TPO FlowOps</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --border:#2d3344;
+    --txt:#e6edf3; --muted:#9aa7b8; --accent:#ff5d3b; --accent2:#6e5cff;
+    --green:#3fb950; --yellow:#d29922; --red:#f85149; --cyan:#39c5cf;
+    --mongo:#4db33d; --redis:#dc382d; --cass:#1287b1; --neo:#6e5cff; --es:#f9b115;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--txt);
+    font-family:'Segoe UI',-apple-system,Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.65; font-size:16px;
+  }
+  .layout{display:flex; max-width:1200px; margin:0 auto;}
+  /* ── Sidebar nav ── */
+  nav{
+    position:sticky; top:0; align-self:flex-start; height:100vh; overflow-y:auto;
+    width:240px; padding:24px 16px; border-right:1px solid var(--border);
+    background:var(--panel); flex-shrink:0;
+  }
+  nav h2{font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:0 0 12px;}
+  nav a{
+    display:block; padding:8px 12px; margin:2px 0; border-radius:8px;
+    color:var(--muted); text-decoration:none; font-size:14px; transition:.15s;
+  }
+  nav a:hover{background:var(--panel2); color:var(--txt);}
+  nav a .n{display:inline-block; width:22px; color:var(--accent); font-weight:700;}
+  nav .meta{margin-top:18px; padding-top:16px; border-top:1px solid var(--border); font-size:12px; color:var(--muted);}
+  /* ── Content ── */
+  main{flex:1; padding:40px 48px; min-width:0;}
+  header.hero{
+    background:linear-gradient(135deg,#1c2230,#161b22);
+    border:1px solid var(--border); border-radius:16px; padding:32px 36px; margin-bottom:36px;
+  }
+  header.hero .tag{display:inline-block; background:rgba(255,93,59,.15); color:var(--accent);
+    padding:4px 12px; border-radius:999px; font-size:12px; font-weight:700; letter-spacing:.05em; margin-bottom:14px;}
+  header.hero h1{margin:0 0 8px; font-size:32px; line-height:1.2;}
+  header.hero p{margin:0; color:var(--muted); max-width:680px;}
+  header.hero .thesis{
+    margin-top:20px; padding:14px 18px; background:var(--panel); border-left:4px solid var(--accent);
+    border-radius:8px; font-size:18px; font-weight:600;
+  }
+  .act{
+    background:var(--panel); border:1px solid var(--border); border-radius:16px;
+    padding:28px 32px; margin-bottom:24px; scroll-margin-top:20px;
+  }
+  .act-head{display:flex; align-items:center; gap:16px; margin-bottom:18px;}
+  .act-num{
+    flex-shrink:0; width:54px; height:54px; border-radius:14px; display:flex; align-items:center;
+    justify-content:center; font-size:22px; font-weight:800; color:#fff;
+    background:linear-gradient(135deg,var(--accent),var(--accent2));
+  }
+  .act-head h3{margin:0; font-size:22px;}
+  .act-head .time{margin-left:auto; font-size:13px; color:var(--muted); background:var(--panel2);
+    padding:5px 12px; border-radius:999px; white-space:nowrap;}
+  .say{
+    background:#10151f; border:1px solid var(--border); border-left:4px solid var(--cyan);
+    border-radius:10px; padding:16px 20px; margin:16px 0; font-size:17px; font-style:italic; color:#dbe7f0;
+  }
+  .say::before{content:"🗣 "; font-style:normal;}
+  .show{
+    display:inline-flex; align-items:center; gap:8px; background:rgba(110,92,255,.14);
+    border:1px solid rgba(110,92,255,.4); color:#b9adff; padding:8px 14px; border-radius:10px;
+    font-size:14px; font-weight:600; margin:10px 0;
+  }
+  .show::before{content:"🖥"; }
+  .idea{
+    margin-top:16px; padding:12px 16px; background:rgba(63,185,80,.1); border-radius:10px;
+    font-size:14.5px; border:1px solid rgba(63,185,80,.25);
+  }
+  .idea b{color:var(--green);}
+  ul{margin:12px 0; padding-left:22px;}
+  li{margin:6px 0;}
+  table{width:100%; border-collapse:collapse; margin:16px 0; font-size:14.5px;}
+  th,td{text-align:left; padding:10px 14px; border-bottom:1px solid var(--border); vertical-align:top;}
+  th{color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.05em; background:var(--panel2);}
+  td:first-child{font-weight:600;}
+  tr:hover td{background:rgba(255,255,255,.02);}
+  .chip{display:inline-block; padding:2px 9px; border-radius:6px; font-size:12px; font-weight:700; color:#fff;}
+  .c-mongo{background:var(--mongo)} .c-redis{background:var(--redis)} .c-cass{background:var(--cass)}
+  .c-neo{background:var(--neo)} .c-es{background:var(--es); color:#1a1a1a}
+  code{background:var(--panel2); padding:2px 7px; border-radius:5px; font-size:13.5px; color:var(--cyan);
+    font-family:'Cascadia Code',Consolas,monospace;}
+  .kit, .timemap{scroll-margin-top:20px;}
+  pre{
+    background:#0a0e14; border:1px solid var(--border); border-radius:12px; padding:20px;
+    overflow-x:auto; font-family:'Cascadia Code',Consolas,monospace; font-size:13.5px; line-height:1.8; color:#cdd6e0;
+  }
+  pre .t{color:var(--accent); font-weight:700;}
+  .pulse{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--green);
+    box-shadow:0 0 0 0 rgba(63,185,80,.6); animation:p 2s infinite;}
+  @keyframes p{0%{box-shadow:0 0 0 0 rgba(63,185,80,.5)}70%{box-shadow:0 0 0 8px rgba(63,185,80,0)}100%{box-shadow:0 0 0 0 rgba(63,185,80,0)}}
+  @media(max-width:860px){nav{display:none} main{padding:24px 18px}}
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <nav>
+    <h2>Recorrido</h2>
+    <a href="#a0"><span class="n">0</span>El gancho</a>
+    <a href="#a1"><span class="n">1</span>El problema</a>
+    <a href="#a2"><span class="n">2</span>La arquitectura</a>
+    <a href="#a3"><span class="n">3</span>La demo</a>
+    <a href="#a4"><span class="n">4</span>Decisión humana</a>
+    <a href="#a5"><span class="n">5</span>La prueba</a>
+    <a href="#a6"><span class="n">6</span>Límites y fallas</a>
+    <a href="#a7"><span class="n">7</span>El cierre</a>
+    <a href="#kit">🎯 Anti-pánico</a>
+    <a href="#tiempos">⏱ Mapa de tiempos</a>
+    <div class="meta">
+      TPO FlowOps · Grupo 7<br>
+      Ingeniería de Datos II<br>
+      Defensa · 8–10 min
+    </div>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <span class="tag">DEFENSA ORAL · GUIÓN NARRATIVO</span>
+      <h1>🎬 Storytelling — FlowOps</h1>
+      <p>Narrativa completa para presentar el TPO como una historia, no como una lista de features.
+         Cada acto trae <b>lo que decís</b> (🗣), <b>lo que mostrás</b> en el front (🖥) y la <b>idea fuerza</b>.</p>
+      <div class="thesis">💡 La tesis que repetís al principio y al final: <span style="color:var(--accent)">“No hay una base para todo, hay una base para cada cosa.”</span></div>
+    </header>
+
+    <!-- ACTO 0 -->
+    <section class="act" id="a0">
+      <div class="act-head"><div class="act-num">0</div><h3>El gancho</h3><span class="time">~30 seg</span></div>
+      <div class="say">Imaginen una empresa donde pedir vacaciones es un infierno de mails: el empleado escribe, RRHH reenvía, el gerente aprueba en otro hilo, y nadie sabe en qué estado quedó la solicitud. Nosotros construimos <b>FlowOps</b>: una plataforma que convierte ese caos en un <b>proceso visual, ejecutable y auditable</b> — como n8n, pero pensada desde los datos.</div>
+      <div class="show">Pestaña <b>Workflow</b> — el canvas con el flujo dibujado</div>
+      <div class="idea"><b>Idea fuerza:</b> no vendemos un formulario de vacaciones; vendemos un <b>motor de procesos</b> y, sobre todo, una <b>arquitectura de datos</b>.</div>
+    </section>
+
+    <!-- ACTO 1 -->
+    <section class="act" id="a1">
+      <div class="act-head"><div class="act-num">1</div><h3>El problema real: un proceso no es una tabla</h3><span class="time">~1 min</span></div>
+      <div class="say">Cuando arrancamos, la pregunta no era “¿qué base uso?”, sino “¿cuántas formas distintas de datos tiene un proceso?”. Y descubrimos que son muchas, y muy diferentes entre sí:</div>
+      <ul>
+        <li>La <b>definición</b> del proceso es un árbol (nodos y transiciones) → un <b>documento</b>.</li>
+        <li>El <b>estado actual</b> de cada solicitud se consulta todo el tiempo → necesita ser <b>rapidísimo</b>.</li>
+        <li>La <b>historia</b> de lo que pasó no se borra nunca → un <b>registro inmutable</b> que solo crece.</li>
+        <li>Las <b>relaciones</b> entre empleados, roles y jerarquía → son un <b>grafo</b>.</li>
+      </ul>
+      <div class="say">Meter todo esto en una sola base relacional habría sido forzar la realidad. Por eso elegimos <b>persistencia políglota</b>: una base distinta para cada forma de acceder a los datos.</div>
+      <div class="idea"><b>Idea fuerza:</b> la decisión técnica central —<i>el motor correcto para cada patrón de acceso</i>— nace de un problema real, no de querer usar tecnologías de moda.</div>
+    </section>
+
+    <!-- ACTO 2 -->
+    <section class="act" id="a2">
+      <div class="act-head"><div class="act-num">2</div><h3>La arquitectura</h3><span class="time">1–2 min</span></div>
+      <div class="say">Así quedó el sistema. Una API en FastAPI es el único punto de entrada —nadie toca las bases directamente— y detrás orquesta cinco motores NoSQL.</div>
+      <div class="show">Pestaña <b>Dashboard</b> — los 5 motores con su <b>latencia</b> (semáforo verde/amarillo/rojo)</div>
+      <table>
+        <tr><th>Motor</th><th>Patrón</th><th>En una frase</th></tr>
+        <tr><td><span class="chip c-mongo">MongoDB</span></td><td>documento</td><td>La definición del proceso y cada instancia son JSON anidados. Es la <b>fuente de verdad</b>.</td></tr>
+        <tr><td><span class="chip c-redis">Redis</span></td><td>clave-valor</td><td>El estado caliente, leído en milisegundos, con TTL.</td></tr>
+        <tr><td><span class="chip c-cass">Cassandra</span></td><td>columnar</td><td>El <b>log de auditoría</b>: append-only, escala en escritura, particionado por instancia.</td></tr>
+        <tr><td><span class="chip c-neo">Neo4j</span></td><td>grafo</td><td>Empleados, roles y relaciones SOLICITA/APRUEBA: traversal en vez de JOINs.</td></tr>
+        <tr><td><span class="chip c-es">Elasticsearch</span></td><td>índice</td><td>Búsqueda full-text (diseñado; lo dejamos como evolución, honestos con el alcance).</td></tr>
+      </table>
+      <div class="say">Y algo que el profe nos pidió y nos gustó: el backend no es un script gigante. Lo separamos en <b>capas</b> —configuración, conexión, acceso a datos (un DAO por motor), lógica de negocio y rutas—. El router nunca toca la base: llama al servicio, el servicio orquesta los repositorios. Cambiar de motor se toca en una sola capa.</div>
+      <div class="idea"><b>Idea fuerza:</b> arquitectura políglota <b>+</b> código por capas = separación de responsabilidades de punta a punta.</div>
+    </section>
+
+    <!-- ACTO 3 -->
+    <section class="act" id="a3">
+      <div class="act-head"><div class="act-num">3</div><h3>La demo: el proceso cobra vida</h3><span class="time">2–4 min</span></div>
+      <div class="say">Pero esto no es un diagrama. Vamos a ejecutarlo en vivo.</div>
+      <div class="show">Canvas → <b>▶ Ejecutar workflow</b> → completar el formulario → enviar</div>
+      <div class="say">Fíjense que el formulario no está hardcodeado: sale de la <b>definición del proceso</b>. Si el profe me pide ahora agregar un campo, lo agrego a la definición y aparece solo, sin tocar código. Y <code>días solicitados</code> es un <b>campo calculado</b>: lo derivo de las fechas contando días hábiles, no confío en lo que mande el cliente.</div>
+      <div class="say">Cuando aprieto enviar, en una sola operación escribo en <b>cuatro motores a la vez</b>: el documento en Mongo, el estado en Redis, los eventos en Cassandra y la solicitud en el grafo de Neo4j. Vean el punto animado recorriendo el flujo.</div>
+      <div class="idea"><b>Idea fuerza:</b> <i>escritura distribuida</i> + <i>formulario data-driven</i> (el proceso es <b>dato configurable</b>, no código).</div>
+    </section>
+
+    <!-- ACTO 4 -->
+    <section class="act" id="a4">
+      <div class="act-head"><div class="act-num">4</div><h3>La decisión humana</h3><span class="time">~1 min</span></div>
+      <div class="say">La solicitud quedó frenada en <code>aprobación gerencia</code>, esperando a una persona. Eso es una <b>tarea humana</b>: una entidad propia, con su rol asignado y su estado.</div>
+      <div class="show">Clic en el nodo <code>aprobacion_gerencia</code> → <b>Aprobar</b> como <code>emp_003</code></div>
+      <div class="say">Aprueba el gerente y la instancia avanza sola hasta el final, notificando al empleado y a RRHH.</div>
+      <div class="show">Remate: volvé a apretar <b>Aprobar</b> sobre la misma instancia</div>
+      <div class="say">Y si intento aprobar dos veces, el sistema responde <b>HTTP 409</b>: una tarea se completa una sola vez. Esta es nuestra respuesta al teorema <b>CAP</b> —priorizamos consistencia en la operación crítica.</div>
+      <div class="idea"><b>Idea fuerza:</b> máquina de estados + <b>idempotencia</b> como decisión de diseño.</div>
+    </section>
+
+    <!-- ACTO 5 -->
+    <section class="act" id="a5">
+      <div class="act-head"><div class="act-num">5</div><h3>La prueba de que todo pasó</h3><span class="time">1–2 min</span></div>
+      <div class="say">¿Cómo sé que todo esto realmente ocurrió? Acá entra cada motor a mostrar lo suyo.</div>
+      <div class="show">Pestaña <b>Ejecuciones</b> — el estado actual leído de <span class="chip c-redis">Redis</span> (caché)</div>
+      <div class="show">Pestaña <b>Auditoría</b> — el <b>event log</b> de <span class="chip c-cass">Cassandra</span>: quién, qué y cuándo, inmutable (event sourcing)</div>
+      <div class="show">Pestaña <b>Grafo Neo4j</b> — las <b>relaciones</b> en <span class="chip c-neo">Neo4j</span>: solicita / aprueba (lo que en SQL serían JOINs caros)</div>
+      <div class="idea"><b>Idea fuerza:</b> cada tecnología <b>justifica su existencia</b> con una evidencia visible en pantalla.</div>
+    </section>
+
+    <!-- ACTO 6 -->
+    <section class="act" id="a6">
+      <div class="act-head"><div class="act-num">6</div><h3>Honestidad técnica: límites y fallas</h3><span class="time">~1 min</span></div>
+      <div class="say">No todo es perfecto, y eso también lo pensamos:</div>
+      <ul>
+        <li>La consistencia entre motores es <b>eventual</b>: Redis puede quedar un instante atrás de Mongo. Lo asumimos: Redis es caché, no la verdad.</li>
+        <li>Si un motor secundario falla al escribir, la operación <b>no se cae</b>: sigue y devuelve <b>warnings</b> (best-effort). La mejora natural sería un patrón <b>outbox/saga</b>.</li>
+        <li>Si falla algo crítico —el proceso no existe, el tenant es inválido— respondemos con códigos claros: <code>404</code>, <code>409</code>.</li>
+        <li>Y medimos la <b>conectividad</b>: la latencia de cada motor está en el Dashboard. Es la evaluación de conectividad que vimos en clase.</li>
+      </ul>
+      <div class="idea"><b>Idea fuerza:</b> conocemos los <b>límites</b> de nuestra solución → madurez técnica.</div>
+    </section>
+
+    <!-- ACTO 7 -->
+    <section class="act" id="a7">
+      <div class="act-head"><div class="act-num">7</div><h3>El cierre</h3><span class="time">~30 seg</span></div>
+      <div class="say">FlowOps demuestra una idea: <b>no hay una base para todo, hay una base para cada cosa</b>. Modelamos un proceso real con la herramienta correcta en cada punto —documento, caché, log, grafo— detrás de una API por capas, multi-empresa y auditable. Si tuviéramos que resumirlo en una prueba: <b>completar una tarea toca Mongo y Cassandra, deja evidencia en la auditoría y se protege con idempotencia.</b> Eso es la arquitectura políglota funcionando.</div>
+      <div class="show">Volver al <b>Dashboard</b> con los 5 motores en verde <span class="pulse"></span></div>
+    </section>
+
+    <!-- KIT -->
+    <section class="act kit" id="kit">
+      <div class="act-head"><div class="act-num">🎯</div><h3>Kit anti-pánico — preguntas difíciles</h3></div>
+      <table>
+        <tr><th>Si te preguntan…</th><th>Respondé con…</th></tr>
+        <tr><td>“¿Por qué no una sola base?”</td><td>Persistencia políglota: cada motor por su patrón de acceso; escalan por separado.</td></tr>
+        <tr><td>“¿Qué pasa si falla un motor al escribir?”</td><td>Best-effort + warnings; Mongo es la verdad; mejora = outbox/saga.</td></tr>
+        <tr><td>“¿Consistencia?”</td><td>Eventual entre motores; Redis es caché, puede quedar atrás.</td></tr>
+        <tr><td>“¿Por qué Cassandra y no Mongo para auditoría?”</td><td>Write-heavy, append-only, particionado por <code>(tenant_id, instance_id)</code>, escala horizontal.</td></tr>
+        <tr><td>“¿Cómo evitás <code>ALLOW FILTERING</code>?”</td><td>Diseñé la PK por <code>(tenant_id, instance_id)</code> y siempre consulto por esa clave.</td></tr>
+        <tr><td>“¿Multi-tenancy?”</td><td><code>tenant_id</code> en todos los motores + entidad Tenant; en Cassandra es parte de la partition key.</td></tr>
+        <tr><td>“¿Por qué FastAPI por capas?”</td><td>El router no toca la base; el servicio orquesta repositorios; un DAO por motor. Cambiar de motor = una sola capa.</td></tr>
+      </table>
+    </section>
+
+    <!-- TIEMPOS -->
+    <section class="act timemap" id="tiempos">
+      <div class="act-head"><div class="act-num">⏱</div><h3>Mapa de tiempos</h3></div>
+<pre><span class="t">0:00</span>  Gancho + canvas
+<span class="t">0:30</span>  El problema: un proceso tiene muchas formas de datos
+<span class="t">1:30</span>  Arquitectura: Dashboard, 5 motores, capas
+<span class="t">3:00</span>  Demo: ▶ Ejecutar (escritura en 4 motores) + form data-driven
+<span class="t">5:00</span>  Tarea humana: aprobar + idempotencia (409)
+<span class="t">6:00</span>  Evidencia: Redis + Auditoría (Cassandra) + Grafo (Neo4j)
+<span class="t">8:00</span>  Límites: consistencia eventual, best-effort, latencia
+<span class="t">9:00</span>  Cierre: "una base para cada cosa"</pre>
+      <div class="idea">💡 <b>Antes de empezar:</b> entrá una vez al <b>Dashboard</b> para “precalentar” las conexiones — así las latencias se ven en verde y no en rojo por la primera llamada.</div>
+    </section>
+
+  </main>
+</div>
+</body>
+</html>
