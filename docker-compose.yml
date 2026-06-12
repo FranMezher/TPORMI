@@ -69,6 +69,21 @@ services:
       - flowops-net
 
   # ----------------------------
+  # admin web de Redis (RedisInsight)
+  #   Abrir http://localhost:5540  →  Add database:
+  #   Host: flowops-cache   Port: 6379   (sin password)
+  # ----------------------------
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: flowops-redisinsight
+    ports:
+      - "5540:5540"
+    depends_on:
+      - cache
+    networks:
+      - flowops-net
+
+  # ----------------------------
   # busqueda full-text
   # ----------------------------
   busqueda:

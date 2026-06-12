@@ -90,8 +90,10 @@ python -m uvicorn main:app --port 8000 --reload
 ### 4. Abrir
 - **App**: http://localhost:8000
 - **Swagger (API)**: http://localhost:8000/docs
-- **mongo-express**: http://localhost:8081
+- **mongo-express** (Mongo): http://localhost:8081
+- **RedisInsight** (Redis): http://localhost:5540 → Add database: host `flowops-cache`, port `6379`, sin password
 - **Neo4j Browser**: http://localhost:7474 (`neo4j` / `flowops123`)
+- **Cassandra**: sin UI web → DBeaver (`localhost:9042`, keyspace `flowops`) o `docker exec -it flowops-auditoria cqlsh`
 
 ---
 
