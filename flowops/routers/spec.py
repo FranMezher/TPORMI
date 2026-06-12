@@ -31,6 +31,8 @@ def crear_proceso(tenant_id: str, payload: Dict[str, Any] = Body(...)):
         repo.upsert_proceso(tenant_id, pid, doc)
     except Exception as e:
         raise HTTPException(500, str(e))
+    # Invalida el cache-aside del proceso (la definición cambió)
+    services.invalidar_cache_proceso(tenant_id)
     # Refleja la topología a Neo4j y valida los caminos (best-effort)
     validacion = services.publicar_proceso(tenant_id, pid, doc.get("nodos"), doc.get("transiciones"))
     return {"ok": True, "tenant_id": tenant_id, "proceso_id": pid, "validacion": validacion}

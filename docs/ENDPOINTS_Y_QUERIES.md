@@ -186,11 +186,21 @@ Aprueba/rechaza y propaga el cambio a 4 motores. Incluye **guarda de idempotenci
 Igual que `POST .../instances` del spec → `core_crear_instancia` (4 motores, ver arriba).
 
 ## `GET /api/proceso?tenant=`
-Primera definición del tenant (la usa el canvas).
-- 🍃 **MongoDB** — `procesos`:
+Primera definición del tenant (la usa el canvas). **Cache-aside con TTL.**
+- ⚡ **Redis** — intenta el cache primero (`cache:proceso:{tenant}`, TTL 900 s):
+  ```
+  GET cache:proceso:{tenant}        // hit → devuelve y no toca Mongo
+  ```
+- 🍃 **MongoDB** — solo si hay miss (lee la fuente de verdad y recachea):
   ```js
   db.procesos.findOne({ tenant_id }, { _id: 0 })
   ```
+  ```
+  SET cache:proceso:{tenant} <json> EX 900     // recachea con TTL 15 min
+  ```
+  > La respuesta trae `_cache: "hit" | "miss"`. Al publicar un proceso se invalida
+  > la clave (`DEL cache:proceso:{tenant}`). Las claves `instancia:*` también usan
+  > TTL (24 h): el estado en Redis es caché, MongoDB es la verdad.
 
 ## `GET /api/instancias?tenant=`
 Lista instancias + enriquece con el estado de Redis.

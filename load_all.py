@@ -284,11 +284,15 @@ print("\n[ + ] Redis — estado actual y saldos...")
 
 redis_commands = [["FLUSHALL"]]
 if not MINIMAL:
-    # Estado cacheado de las instancias demo (en --limpio no se cargan)
+    # Estado cacheado de las instancias demo (en --limpio no se cargan).
+    # EXPIRE 86400 (24 h): el estado en Redis es CACHÉ con TTL; Mongo es la verdad.
     redis_commands += [
         ["HSET", "instancia:inst_vac_2026_001", "estado", "aprobada",  "nodo_actual", "end",                  "updated_at", "2026-06-10T11:01:30Z"],
+        ["EXPIRE", "instancia:inst_vac_2026_001", "86400"],
         ["HSET", "instancia:inst_vac_2026_002", "estado", "rechazada", "nodo_actual", "end",                  "updated_at", "2026-06-11T10:03:00Z", "motivo_rechazo", "saldo_insuficiente"],
+        ["EXPIRE", "instancia:inst_vac_2026_002", "86400"],
         ["HSET", "instancia:inst_vac_2026_003", "estado", "pendiente", "nodo_actual", "aprobacion_gerencia",  "updated_at", "2026-06-12T08:03:00Z"],
+        ["EXPIRE", "instancia:inst_vac_2026_003", "86400"],
     ]
 redis_commands += [
     # En --limpio emp_001 arranca con saldo completo (15) para poder solicitar desde cero

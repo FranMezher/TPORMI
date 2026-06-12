@@ -227,6 +227,42 @@ def core_eventos(tenant_id: str, iid: str) -> list:
     return repo.cass_eventos(tenant_id, iid)
 
 
+# ─── Cache-aside de la definición del proceso (Redis, TTL 15 min) ──
+PROCESO_CACHE_TTL = 900  # segundos
+
+
+def _proceso_cache_key(tenant_id: str) -> str:
+    return f"cache:proceso:{tenant_id}"
+
+
+def get_proceso_cached(tenant_id: str) -> dict:
+    """Cache-aside: primero Redis (con TTL); si falla/expira, lee Mongo y recachea."""
+    key = _proceso_cache_key(tenant_id)
+    try:
+        cached = repo.cache_get_json(key)
+        if cached is not None:
+            cached["_cache"] = "hit"
+            return cached
+    except Exception:
+        pass
+    doc = repo.get_proceso_primero(tenant_id)   # fuente de verdad: MongoDB
+    try:
+        if doc:
+            repo.cache_set_json(key, doc, PROCESO_CACHE_TTL)
+    except Exception:
+        pass
+    if doc:
+        doc["_cache"] = "miss"
+    return doc
+
+
+def invalidar_cache_proceso(tenant_id: str):
+    try:
+        repo.cache_del(_proceso_cache_key(tenant_id))
+    except Exception:
+        pass
+
+
 # ─── Publicación + validación de proceso (Neo4j) ─────────────
 def _norm_nodos(nodos):
     out = []

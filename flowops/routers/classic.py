@@ -87,8 +87,9 @@ def crear_tenant(body: NuevoTenant):
 # ─── Proceso / instancias (tenant por defecto) ───────────────
 @router.get("/api/proceso")
 def get_proceso(tenant: str = config.DEFAULT_TENANT):
+    """Definición del proceso con cache-aside en Redis (TTL 15 min)."""
     try:
-        return repo.get_proceso_primero(tenant)
+        return services.get_proceso_cached(tenant)
     except Exception as e:
         raise HTTPException(500, str(e))
 

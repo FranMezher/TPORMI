@@ -255,6 +255,20 @@ def redis_dbsize() -> int:
     return rdb().dbsize()
 
 
+# ─── Cache-aside genérico (clave → JSON con TTL) ─────────────
+def cache_get_json(key: str):
+    v = rdb().get(key)
+    return json.loads(v) if v else None
+
+
+def cache_set_json(key: str, value, ttl_segundos: int):
+    rdb().setex(key, ttl_segundos, json.dumps(value))   # SET key value EX ttl
+
+
+def cache_del(key: str):
+    rdb().delete(key)
+
+
 def redis_dump() -> dict:
     r = rdb()
     inst_keys  = sorted(r.keys("instancia:*"))
