@@ -74,6 +74,15 @@ def core_crear_instancia(tenant_id: str, empleado_id: str, datos: Dict[str, Any]
     iid   = "inst_vac_" + now.strftime("%Y%m%d_%H%M%S")
     warns = []
 
+    # ── Decisión automática: validacion_saldo (días solicitados ≤ saldo) ──
+    dias  = int(datos.get("dias_solicitados") or 0)
+    saldo = repo.get_saldo(empleado_id)                 # None si se desconoce
+    saldo_ok = (saldo is None) or (dias <= saldo)       # sin saldo conocido → no se bloquea
+    if saldo_ok:
+        estado, nodo_actual = "pendiente", "aprobacion_gerencia"
+    else:
+        estado, nodo_actual = "rechazada", "end"        # rechazo automático por saldo
+
     # 1. MongoDB ─────────────────────────────────────────────
     try:
         repo.insert_instancia({
@@ -81,46 +90,61 @@ def core_crear_instancia(tenant_id: str, empleado_id: str, datos: Dict[str, Any]
             "instance_id":    iid,
             "proceso_id":     process_id,
             "solicitante_id": empleado_id,
-            "estado":         "pendiente",
-            "nodo_actual":    "aprobacion_gerencia",  # tras validacion_saldo automática
+            "estado":         estado,
+            "nodo_actual":    nodo_actual,
             "datos":          datos,                  # flexible: lo que defina el formulario
+            "saldo_disponible": saldo,
+            "motivo_rechazo": None if saldo_ok else "saldo_insuficiente",
             "created_at": now, "updated_at": now
         })
     except Exception as e:
         raise HTTPException(500, f"MongoDB: {e}")
 
-    # 1b. Tarea humana pendiente (entidad Task)
+    # 1b. Tarea humana pendiente (solo si pasó la validación de saldo)
     task_id = None
-    try:
-        task_id = repo.crear_task(tenant_id, iid, "aprobacion_gerencia", role="gerencia")
-    except Exception as e:
-        warns.append(f"Task: {e}")
+    if saldo_ok:
+        try:
+            task_id = repo.crear_task(tenant_id, iid, "aprobacion_gerencia", role="gerencia")
+        except Exception as e:
+            warns.append(f"Task: {e}")
 
     # 2. Redis ────────────────────────────────────────────────
     try:
-        repo.cache_set_estado(iid, "pendiente", "aprobacion_gerencia", now.isoformat(), ttl=86400)
+        repo.cache_set_estado(iid, estado, nodo_actual, now.isoformat(), ttl=86400)
     except Exception as e:
         warns.append(f"Redis: {e}")
 
     # 3. Cassandra ────────────────────────────────────────────
     try:
-        repo.cass_event(tenant_id, iid, now,                        "start",            None,        "inicio_proceso",     None)
-        repo.cass_event(tenant_id, iid, now + timedelta(seconds=1), "formulario",       empleado_id, "formulario_enviado",
+        repo.cass_event(tenant_id, iid, now,                        "start",      None,        "inicio_proceso",     None)
+        repo.cass_event(tenant_id, iid, now + timedelta(seconds=1), "formulario", empleado_id, "formulario_enviado",
                         json.dumps(datos))
-        repo.cass_event(tenant_id, iid, now + timedelta(seconds=2), "validacion_saldo", "sistema",   "saldo_suficiente",
-                        json.dumps({"dias_solicitados": datos.get("dias_solicitados")}))
-        repo.cass_event(tenant_id, iid, now + timedelta(seconds=3), "aprobacion_gerencia", "sistema", "tarea_asignada",
-                        json.dumps({"asignado_a_rol": "gerencia", "task_id": task_id}))
+        if saldo_ok:
+            repo.cass_event(tenant_id, iid, now + timedelta(seconds=2), "validacion_saldo", "sistema", "saldo_suficiente",
+                            json.dumps({"dias_solicitados": dias, "saldo_disponible": saldo}))
+            repo.cass_event(tenant_id, iid, now + timedelta(seconds=3), "aprobacion_gerencia", "sistema", "tarea_asignada",
+                            json.dumps({"asignado_a_rol": "gerencia", "task_id": task_id}))
+        else:
+            repo.cass_event(tenant_id, iid, now + timedelta(seconds=2), "validacion_saldo", "sistema", "saldo_insuficiente",
+                            json.dumps({"dias_solicitados": dias, "saldo_disponible": saldo}))
+            repo.cass_event(tenant_id, iid, now + timedelta(seconds=3), "notif_rechazo", "sistema", "notificacion_enviada",
+                            json.dumps({"destinatarios": [empleado_id], "motivo": "saldo_insuficiente"}))
+            repo.cass_event(tenant_id, iid, now + timedelta(seconds=4), "end", None, "proceso_finalizado", None)
     except Exception as e:
         warns.append(f"Cassandra: {e}")
 
     # 4. Neo4j ────────────────────────────────────────────────
     try:
         repo.graph_crear_solicitud(iid, datos, now.isoformat(), empleado_id, tenant_id)
+        if not saldo_ok:
+            repo.graph_set_estado(iid, "rechazada")
     except Exception as e:
         warns.append(f"Neo4j: {e}")
 
-    return {"ok": True, "instance_id": iid, "task_id": task_id, "warnings": warns}
+    return {"ok": True, "instance_id": iid, "task_id": task_id,
+            "estado": estado, "nodo_actual": nodo_actual,
+            "saldo_disponible": saldo, "dias_solicitados": dias,
+            "saldo_ok": saldo_ok, "warnings": warns}
 
 
 def core_avanzar(tenant_id: str, iid: str, actor_id: str, accion: str, comentario: str = "") -> dict:

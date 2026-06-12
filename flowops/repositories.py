@@ -233,6 +233,24 @@ def cache_get(iid: str) -> dict:
     return rdb().hgetall(redis_key(iid))
 
 
+def get_saldo(empleado_id: str):
+    """Saldo de días del empleado. Redis (caché) primero, fallback a Neo4j. None si se desconoce."""
+    try:
+        v = rdb().get(f"empleado:{empleado_id}:saldo_dias")
+        if v is not None:
+            return int(v)
+    except Exception:
+        pass
+    try:
+        with neo4j().session() as s:
+            r = s.run("MATCH (e:Empleado {empleado_id:$e}) RETURN e.saldo_dias AS s", e=empleado_id).single()
+            if r and r["s"] is not None:
+                return int(r["s"])
+    except Exception:
+        pass
+    return None
+
+
 def redis_dbsize() -> int:
     return rdb().dbsize()
 
@@ -324,6 +342,12 @@ def graph_crear_solicitud(iid, datos, ts, eid, tenant_id):
         """, iid=iid, dias=datos.get("dias_solicitados"), fi=datos.get("fecha_inicio"),
             ff=datos.get("fecha_fin"), motivo=datos.get("motivo"),
             ts=ts, eid=eid, tenant=tenant_id)
+
+
+def graph_set_estado(iid, estado):
+    """Actualiza el estado de la solicitud en el grafo (p. ej. rechazo automático)."""
+    with neo4j().session() as s:
+        s.run("MATCH (sol:Solicitud {instance_id:$iid}) SET sol.estado=$est", iid=iid, est=estado)
 
 
 def graph_decision(iid, actor_id, accion, ts, comentario, nuevo_estado):
