@@ -1036,9 +1036,14 @@ async function launchInstancia() {
     if (!res.ok) { msgEl.innerHTML = `<div class="msg msg-err">Error: ${JSON.stringify(res)}</div>`; return; }
     closeLaunch();
     toast(`▶ Ejecutando <strong>${res.instance_id}</strong> · empleado ${datos.empleado_id}`);
-    // Camino al crear: validacion automática → queda en aprobacion_gerencia
-    await runPath(['start','formulario','validacion_saldo','aprobacion_gerencia']);
-    toast(`⏸ <strong>${res.instance_id}</strong> esperando aprobación de gerencia. Hacé clic en el nodo para decidir.`, 4000);
+    // El camino depende de la validación automática de saldo (decisión del backend)
+    if (res.saldo_ok === false) {
+      await runPath(['start','formulario','validacion_saldo','notif_rechazo','end']);
+      toast(`⛔ <strong>${res.instance_id}</strong> rechazada automáticamente — saldo insuficiente (pidió ${res.dias_solicitados} días, tiene ${res.saldo_disponible}).`, 6000);
+    } else {
+      await runPath(['start','formulario','validacion_saldo','aprobacion_gerencia']);
+      toast(`⏸ <strong>${res.instance_id}</strong> esperando aprobación de gerencia. Hacé clic en el nodo para decidir.`, 4000);
+    }
     overlayLiveState();
   } catch (e) { msgEl.innerHTML = `<div class="msg msg-err">${e}</div>`; }
 }
