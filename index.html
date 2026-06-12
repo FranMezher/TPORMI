@@ -867,7 +867,17 @@ async function saveWorkflow() {
   try {
     const res = await fetch(`${BASE}/api/${encodeURIComponent(TENANT)}/processes`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(_proceso) }).then(r => r.json());
-    if (res.ok) { _wfDirty = false; document.getElementById('wf-save').classList.add('hidden'); toast('💾 Proceso guardado en MongoDB'); loadProcesos(); updateExecBtn(); }
+    if (res.ok) {
+      _wfDirty = false; document.getElementById('wf-save').classList.add('hidden');
+      loadProcesos(); updateExecBtn();
+      const v = res.validacion;
+      if (v && v.ok === false && v.errores && v.errores.length)
+        toast('💾 Guardado, pero Neo4j detectó: ' + v.errores.join(' · '), 7000);
+      else if (v && v.ok === true)
+        toast('💾 Guardado en MongoDB ✓ — Neo4j validó los caminos (sin errores)');
+      else
+        toast('💾 Proceso guardado en MongoDB');
+    }
     else toast('Error al guardar: ' + JSON.stringify(res));
   } catch (e) { toast('Error: ' + e); }
 }

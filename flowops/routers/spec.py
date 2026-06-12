@@ -31,7 +31,9 @@ def crear_proceso(tenant_id: str, payload: Dict[str, Any] = Body(...)):
         repo.upsert_proceso(tenant_id, pid, doc)
     except Exception as e:
         raise HTTPException(500, str(e))
-    return {"ok": True, "tenant_id": tenant_id, "proceso_id": pid}
+    # Refleja la topología a Neo4j y valida los caminos (best-effort)
+    validacion = services.publicar_proceso(tenant_id, pid, doc.get("nodos"), doc.get("transiciones"))
+    return {"ok": True, "tenant_id": tenant_id, "proceso_id": pid, "validacion": validacion}
 
 
 @router.get("/api/{tenant_id}/processes")
@@ -82,6 +84,21 @@ def get_instance_tenant(tenant_id: str, instance_id: str):
 def eventos_tenant(tenant_id: str, instance_id: str):
     try:
         return services.core_eventos(tenant_id, instance_id)
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@router.get("/api/{tenant_id}/events/by-date")
+def eventos_por_fecha(tenant_id: str, date: str):
+    """Reporte de auditoría del tenant en una fecha (YYYY-MM-DD). Tabla particionada
+    por (tenant_id, fecha) en Cassandra: una sola partición, sin afectar a otros tenants."""
+    from datetime import date as _date
+    try:
+        f = _date.fromisoformat(date)
+    except Exception:
+        raise HTTPException(400, "Parámetro 'date' debe ser YYYY-MM-DD")
+    try:
+        return repo.cass_eventos_por_fecha(tenant_id, f)
     except Exception as e:
         raise HTTPException(500, str(e))
 

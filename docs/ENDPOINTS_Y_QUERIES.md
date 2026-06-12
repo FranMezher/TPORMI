@@ -21,7 +21,7 @@ toca en cada acción.
 # 1. Rutas del spec (multi-tenant)
 
 ## `POST /api/{tenant_id}/processes`
-Crea/actualiza una definición de proceso.
+Crea/actualiza una definición de proceso **y valida su topología en Neo4j**.
 - 🍃 **MongoDB** — `procesos`:
   ```js
   db.procesos.updateOne(
@@ -29,6 +29,19 @@ Crea/actualiza una definición de proceso.
     { $set: <definición completa> },
     { upsert: true })
   ```
+- 🕸️ **Neo4j** — refleja la topología como `(:Step)-[:NEXT]->(:Step)` y valida:
+  ```cypher
+  // sincroniza (reescribe la topología del proceso)
+  MATCH (st:Step {tenant_id:$t, proceso_id:$p}) DETACH DELETE st;
+  UNWIND $nodos AS n MERGE (st:Step {tenant_id:$t, proceso_id:$p, node_id:n.node_id}) SET st.tipo=n.tipo, st.nombre=n.nombre;
+  UNWIND $trans AS tr MATCH (a:Step{...node_id:tr.desde}),(b:Step{...node_id:tr.hasta}) MERGE (a)-[:NEXT {condicion:tr.condicion}]->(b);
+  // valida caminos (devuelve pasos sin salida a 'end')
+  MATCH (st:Step {tenant_id:$t, proceso_id:$p}) WHERE st.tipo <> 'end'
+    AND NOT EXISTS { MATCH (st)-[:NEXT*1..]->(e:Step {tenant_id:$t, proceso_id:$p}) WHERE e.tipo='end' }
+  RETURN st.node_id;
+  ```
+  > La respuesta incluye `validacion: { ok, errores, sin_camino_a_fin, inalcanzables, loops }`.
+  > Detalle en [VALIDACION_NEO4J.md](VALIDACION_NEO4J.md).
 
 ## `GET /api/{tenant_id}/processes`
 Lista las definiciones del tenant.
@@ -65,11 +78,15 @@ Inicia una instancia → **escritura distribuida en 4 motores** (`core_crear_ins
   HSET instancia:{id} estado "pendiente" nodo_actual "aprobacion_gerencia" updated_at <iso>
   EXPIRE instancia:{id} 86400
   ```
-- 💎 **Cassandra** — 4 eventos de auditoría:
+- 💎 **Cassandra** — 4 eventos de auditoría, **escritura dual** (mismo `event_id` en
+  las dos tablas: una por instancia, otra por fecha):
   ```sql
   INSERT INTO flowops.eventos_instancia
     (tenant_id, instance_id, timestamp, event_id, nodo, actor_id, accion, detalle)
     VALUES (?, ?, ?, uuid(), ?, ?, ?, ?);
+  INSERT INTO flowops.eventos_por_fecha
+    (tenant_id, fecha, timestamp, event_id, instance_id, nodo, actor_id, accion, detalle)
+    VALUES (?, ?, ?, <mismo event_id>, ?, ?, ?, ?, ?);
   -- nodos: start · formulario · validacion_saldo · aprobacion_gerencia
   ```
 - 🕸️ **Neo4j** — crea la solicitud y la relación con el empleado:
@@ -101,6 +118,15 @@ Timeline de auditoría (`core_eventos`).
   SELECT instance_id, timestamp, nodo, actor_id, accion, detalle
   FROM flowops.eventos_instancia
   WHERE tenant_id = ? AND instance_id = ?;
+  ```
+
+## `GET /api/{tenant_id}/events/by-date?date=YYYY-MM-DD`
+Reporte de auditoría de un tenant en una fecha (reportes mensuales/diarios).
+- 💎 **Cassandra** — `eventos_por_fecha` (partición `(tenant_id, fecha)`, una sola lectura):
+  ```sql
+  SELECT instance_id, timestamp, nodo, actor_id, accion, detalle
+  FROM flowops.eventos_por_fecha
+  WHERE tenant_id = ? AND fecha = ?;
   ```
 
 ## `GET /api/{tenant_id}/tasks?status=pending`

@@ -203,6 +203,51 @@ def core_eventos(tenant_id: str, iid: str) -> list:
     return repo.cass_eventos(tenant_id, iid)
 
 
+# ─── Publicación + validación de proceso (Neo4j) ─────────────
+def _norm_nodos(nodos):
+    out = []
+    for n in nodos or []:
+        nid = n.get("node_id") or n.get("id")
+        if nid:
+            out.append({"node_id": nid, "tipo": n.get("tipo", ""), "nombre": n.get("nombre", nid)})
+    return out
+
+
+def _norm_trans(trans):
+    out = []
+    for t in trans or []:
+        d = t.get("desde") or t.get("from")
+        h = t.get("hasta") or t.get("to")
+        if d and h:
+            out.append({"desde": d, "hasta": h, "condicion": t.get("condicion", "")})
+    return out
+
+
+def publicar_proceso(tenant_id: str, proceso_id: str, nodos, transiciones) -> dict:
+    """Sincroniza la topología del proceso a Neo4j y valida los caminos.
+    Devuelve {ok, errores[], sin_camino_a_fin[], inalcanzables[], loops[]}. Best-effort."""
+    nn, tt = _norm_nodos(nodos), _norm_trans(transiciones)
+    errores = []
+    tipos = {n["tipo"] for n in nn}
+    if "start" not in tipos:
+        errores.append("Falta un nodo de tipo 'start'.")
+    if "end" not in tipos:
+        errores.append("Falta un nodo de tipo 'end'.")
+    val = {"sin_camino_a_fin": [], "inalcanzables": [], "loops": []}
+    try:
+        repo.graph_sync_proceso(tenant_id, proceso_id, nn, tt)
+        val = repo.graph_validar_proceso(tenant_id, proceso_id)
+    except Exception as e:
+        return {"ok": None, "errores": [f"Neo4j no disponible: {e}"], **val}
+    if val["sin_camino_a_fin"]:
+        errores.append("Pasos sin camino al fin: " + ", ".join(val["sin_camino_a_fin"]))
+    if val["inalcanzables"]:
+        errores.append("Pasos inalcanzables desde el inicio: " + ", ".join(val["inalcanzables"]))
+    if val["loops"]:
+        errores.append("Pasos en un ciclo infinito: " + ", ".join(val["loops"]))
+    return {"ok": not errores, "errores": errores, **val}
+
+
 # ═══════════════════════════════════════════════════════════════
 #  Arranque — seed + migración tenant_id + tareas pendientes
 # ═══════════════════════════════════════════════════════════════
@@ -242,6 +287,13 @@ def seed_and_migrate():
             repo.provision_process(t)
         # Form data-driven: asegurar campos tipados en el nodo formulario de cada proceso
         repo.ensure_form_fields()
+        # Reflejar la topología de cada proceso como grafo en Neo4j (para validación)
+        for p in repo.all_procesos():
+            try:
+                publicar_proceso(p.get("tenant_id", config.DEFAULT_TENANT),
+                                 p.get("proceso_id"), p.get("nodos"), p.get("transiciones"))
+            except Exception:
+                pass
         # Crear tareas pendientes para instancias detenidas en un nodo task
         tnodes = repo.task_nodes(config.DEFAULT_TENANT)
         for d in repo.instancias_pendientes():

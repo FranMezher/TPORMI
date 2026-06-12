@@ -114,6 +114,22 @@ MATCH (a:NodoProceso {node_id: 'aprobacion_gerencia'}),  (b:NodoProceso {node_id
 MATCH (a:NodoProceso {node_id: 'aprobacion_gerencia'}),  (b:NodoProceso {node_id: 'notif_rechazo'})       MERGE (a)-[:SIGUIENTE {condicion: 'rechazado'}]->(b);
 MATCH (a:NodoProceso {node_id: 'notif_aprobacion'}),     (b:NodoProceso {node_id: 'end'})                 MERGE (a)-[:SIGUIENTE {condicion: 'always'}]->(b);
 MATCH (a:NodoProceso {node_id: 'notif_rechazo'}),        (b:NodoProceso {node_id: 'end'})                 MERGE (a)-[:SIGUIENTE {condicion: 'always'}]->(b);
+MATCH (st:Step {tenant_id:'empresa_01', proceso_id:'proc_vacaciones_v1'}) DETACH DELETE st;
+MERGE (s_start:Step {tenant_id:'empresa_01', proceso_id:'proc_vacaciones_v1', node_id:'start'})               SET s_start.tipo='start',        s_start.nombre='Inicio';
+MERGE (s_form:Step {tenant_id:'empresa_01', proceso_id:'proc_vacaciones_v1', node_id:'formulario'})          SET s_form.tipo='form',          s_form.nombre='Formulario';
+MERGE (s_val:Step {tenant_id:'empresa_01', proceso_id:'proc_vacaciones_v1', node_id:'validacion_saldo'})     SET s_val.tipo='decision',       s_val.nombre='Validar Saldo';
+MERGE (s_apr:Step {tenant_id:'empresa_01', proceso_id:'proc_vacaciones_v1', node_id:'aprobacion_gerencia'})  SET s_apr.tipo='task',           s_apr.nombre='Aprobacion Gerencia';
+MERGE (s_na:Step {tenant_id:'empresa_01', proceso_id:'proc_vacaciones_v1', node_id:'notif_aprobacion'})      SET s_na.tipo='notification',    s_na.nombre='Notificacion Aprobacion';
+MERGE (s_nr:Step {tenant_id:'empresa_01', proceso_id:'proc_vacaciones_v1', node_id:'notif_rechazo'})         SET s_nr.tipo='notification',    s_nr.nombre='Notificacion Rechazo';
+MERGE (s_end:Step {tenant_id:'empresa_01', proceso_id:'proc_vacaciones_v1', node_id:'end'})                  SET s_end.tipo='end',            s_end.nombre='Fin';
+MATCH (a:Step {proceso_id:'proc_vacaciones_v1', node_id:'start'}),               (b:Step {proceso_id:'proc_vacaciones_v1', node_id:'formulario'})          MERGE (a)-[:NEXT {condicion:'always'}]->(b);
+MATCH (a:Step {proceso_id:'proc_vacaciones_v1', node_id:'formulario'}),          (b:Step {proceso_id:'proc_vacaciones_v1', node_id:'validacion_saldo'})    MERGE (a)-[:NEXT {condicion:'always'}]->(b);
+MATCH (a:Step {proceso_id:'proc_vacaciones_v1', node_id:'validacion_saldo'}),    (b:Step {proceso_id:'proc_vacaciones_v1', node_id:'aprobacion_gerencia'}) MERGE (a)-[:NEXT {condicion:'saldo_suficiente'}]->(b);
+MATCH (a:Step {proceso_id:'proc_vacaciones_v1', node_id:'validacion_saldo'}),    (b:Step {proceso_id:'proc_vacaciones_v1', node_id:'notif_rechazo'})       MERGE (a)-[:NEXT {condicion:'saldo_insuficiente'}]->(b);
+MATCH (a:Step {proceso_id:'proc_vacaciones_v1', node_id:'aprobacion_gerencia'}), (b:Step {proceso_id:'proc_vacaciones_v1', node_id:'notif_aprobacion'})    MERGE (a)-[:NEXT {condicion:'aprobado'}]->(b);
+MATCH (a:Step {proceso_id:'proc_vacaciones_v1', node_id:'aprobacion_gerencia'}), (b:Step {proceso_id:'proc_vacaciones_v1', node_id:'notif_rechazo'})       MERGE (a)-[:NEXT {condicion:'rechazado'}]->(b);
+MATCH (a:Step {proceso_id:'proc_vacaciones_v1', node_id:'notif_aprobacion'}),    (b:Step {proceso_id:'proc_vacaciones_v1', node_id:'end'})                 MERGE (a)-[:NEXT {condicion:'always'}]->(b);
+MATCH (a:Step {proceso_id:'proc_vacaciones_v1', node_id:'notif_rechazo'}),       (b:Step {proceso_id:'proc_vacaciones_v1', node_id:'end'})                 MERGE (a)-[:NEXT {condicion:'always'}]->(b);
 """
 
 # Solicitudes demo (instancias ya iniciadas/finalizadas). Se omiten con --limpio.
@@ -219,6 +235,20 @@ CREATE TABLE eventos_instancia (
   detalle     TEXT,
   PRIMARY KEY ((tenant_id, instance_id), timestamp, event_id)
 ) WITH CLUSTERING ORDER BY (timestamp ASC, event_id ASC);
+
+DROP TABLE IF EXISTS eventos_por_fecha;
+CREATE TABLE eventos_por_fecha (
+  tenant_id   TEXT,
+  fecha       DATE,
+  timestamp   TIMESTAMP,
+  event_id    UUID,
+  instance_id TEXT,
+  nodo        TEXT,
+  actor_id    TEXT,
+  accion      TEXT,
+  detalle     TEXT,
+  PRIMARY KEY ((tenant_id, fecha), timestamp, event_id)
+) WITH CLUSTERING ORDER BY (timestamp DESC, event_id ASC);
 """
 
 # Eventos demo de auditoría. Se omiten con --limpio (la tabla queda vacía).

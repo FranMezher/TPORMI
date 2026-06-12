@@ -90,6 +90,11 @@ def count_procesos() -> int:
     return procesos_col().count_documents({})
 
 
+def all_procesos() -> List[dict]:
+    """Todas las definiciones (con nodos/transiciones) — usada para sincronizar a Neo4j."""
+    return list(procesos_col().find({}))
+
+
 def backfill_tenant_procesos():
     procesos_col().update_many({"tenant_id": {"$exists": False}},
                                {"$set": {"tenant_id": config.DEFAULT_TENANT}})
@@ -246,15 +251,30 @@ def redis_dump() -> dict:
 # ═══════════════════════════════════════════════════════════════
 #  Cassandra — log de auditoría (columnar, append-only)
 # ═══════════════════════════════════════════════════════════════
+# Tabla 1: particionada por (tenant_id, instance_id) → historial de UNA solicitud.
 CQL_INS = (
     "INSERT INTO flowops.eventos_instancia "
     "(tenant_id, instance_id, timestamp, event_id, nodo, actor_id, accion, detalle) "
     "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
 )
+# Tabla 2: particionada por (tenant_id, fecha) → reporte de auditoría por día/empresa.
+# Misma información, distinto "cajón": cada consulta tiene su tabla óptima (query-first).
+CQL_INS_FECHA = (
+    "INSERT INTO flowops.eventos_por_fecha "
+    "(tenant_id, fecha, timestamp, event_id, instance_id, nodo, actor_id, accion, detalle) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+)
 
 
 def cass_event(tenant_id, iid, ts, nodo, actor, accion, detalle=None):
-    cass().execute(CQL_INS, [tenant_id, iid, ts, _uuid.uuid4(), nodo, actor, accion, detalle])
+    """Escritura dual: el mismo evento (mismo event_id) en las dos tablas de auditoría."""
+    eid = _uuid.uuid4()
+    cass().execute(CQL_INS, [tenant_id, iid, ts, eid, nodo, actor, accion, detalle])
+    try:
+        fecha = ts.date() if hasattr(ts, "date") else ts
+        cass().execute(CQL_INS_FECHA, [tenant_id, fecha, ts, eid, iid, nodo, actor, accion, detalle])
+    except Exception:
+        pass  # tabla nueva ausente en bases viejas: el evento primario ya quedó registrado
 
 
 def cass_eventos(tenant_id: str, iid: str) -> List[dict]:
@@ -262,6 +282,20 @@ def cass_eventos(tenant_id: str, iid: str) -> List[dict]:
         "SELECT instance_id, timestamp, nodo, actor_id, accion, detalle "
         "FROM flowops.eventos_instancia WHERE tenant_id=%s AND instance_id=%s",
         [tenant_id, iid])
+    return [{
+        "instance_id": r.instance_id,
+        "timestamp":   r.timestamp.isoformat() if r.timestamp else None,
+        "nodo":        r.nodo, "actor_id": r.actor_id,
+        "accion":      r.accion, "detalle": r.detalle
+    } for r in rows]
+
+
+def cass_eventos_por_fecha(tenant_id: str, fecha) -> List[dict]:
+    """Reporte de auditoría: todos los eventos de un tenant en una fecha (una sola partición)."""
+    rows = cass().execute(
+        "SELECT instance_id, timestamp, nodo, actor_id, accion, detalle "
+        "FROM flowops.eventos_por_fecha WHERE tenant_id=%s AND fecha=%s",
+        [tenant_id, fecha])
     return [{
         "instance_id": r.instance_id,
         "timestamp":   r.timestamp.isoformat() if r.timestamp else None,
@@ -331,3 +365,50 @@ def graph_counts() -> dict:
         nodos = s.run("MATCH (n) RETURN count(n) AS c").single()["c"]
         rels  = s.run("MATCH ()-[r]->() RETURN count(r) AS c").single()["c"]
     return {"nodos": nodos, "relaciones": rels}
+
+
+# ─── Topología del proceso como grafo (validación de caminos) ─
+def graph_sync_proceso(tenant_id, proceso_id, nodos, transiciones):
+    """Refleja la definición del proceso como (:Step)-[:NEXT]->(:Step), aislada por
+    tenant + proceso. Reescribe la topología (borra la anterior y la vuelve a crear)."""
+    with neo4j().session() as s:
+        s.run("MATCH (st:Step {tenant_id:$t, proceso_id:$p}) DETACH DELETE st",
+              t=tenant_id, p=proceso_id)
+        s.run("""
+            UNWIND $nodos AS n
+            MERGE (st:Step {tenant_id:$t, proceso_id:$p, node_id:n.node_id})
+            SET st.tipo = n.tipo, st.nombre = n.nombre
+        """, t=tenant_id, p=proceso_id, nodos=nodos)
+        s.run("""
+            UNWIND $trans AS tr
+            MATCH (a:Step {tenant_id:$t, proceso_id:$p, node_id:tr.desde})
+            MATCH (b:Step {tenant_id:$t, proceso_id:$p, node_id:tr.hasta})
+            MERGE (a)-[r:NEXT]->(b) SET r.condicion = tr.condicion
+        """, t=tenant_id, p=proceso_id, trans=transiciones)
+
+
+def graph_validar_proceso(tenant_id, proceso_id) -> dict:
+    """Recorre el grafo del proceso y detecta errores de diseño:
+       · nodos sin camino al 'end'   · nodos inalcanzables desde 'start'   · loops."""
+    with neo4j().session() as s:
+        sin_fin = [r["nid"] for r in s.run("""
+            MATCH (st:Step {tenant_id:$t, proceso_id:$p})
+            WHERE st.tipo <> 'end'
+              AND NOT EXISTS {
+                MATCH (st)-[:NEXT*1..]->(e:Step {tenant_id:$t, proceso_id:$p})
+                WHERE e.tipo = 'end'
+              }
+            RETURN st.node_id AS nid
+        """, t=tenant_id, p=proceso_id)]
+        inalcanzables = [r["nid"] for r in s.run("""
+            MATCH (ini:Step {tenant_id:$t, proceso_id:$p}) WHERE ini.tipo = 'start'
+            MATCH (st:Step  {tenant_id:$t, proceso_id:$p})
+            WHERE st.tipo <> 'start' AND NOT EXISTS { MATCH (ini)-[:NEXT*1..]->(st) }
+            RETURN st.node_id AS nid
+        """, t=tenant_id, p=proceso_id)]
+        loops = [r["nid"] for r in s.run("""
+            MATCH (st:Step {tenant_id:$t, proceso_id:$p})
+            WHERE EXISTS { MATCH (st)-[:NEXT*1..]->(st) }
+            RETURN DISTINCT st.node_id AS nid
+        """, t=tenant_id, p=proceso_id)]
+    return {"sin_camino_a_fin": sin_fin, "inalcanzables": inalcanzables, "loops": loops}
