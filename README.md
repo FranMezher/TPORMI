@@ -134,6 +134,7 @@ Dependencia en una sola dirección: `routers → services → repositories → d
 - [docs/PLAN_DE_SISTEMAS.md](docs/PLAN_DE_SISTEMAS.md) — dominio, persistencia, CAP, decisiones
 - [docs/MODELO_DE_DATOS.md](docs/MODELO_DE_DATOS.md) — esquemas, claves e índices por motor
 - [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md) — componentes y flujos de datos
+- [docs/ENDPOINTS_Y_QUERIES.md](docs/ENDPOINTS_Y_QUERIES.md) — cada endpoint y la query que ejecuta en cada motor
 - [docs/PRACTICA_12_CONECTIVIDAD.md](docs/PRACTICA_12_CONECTIVIDAD.md) — matriz de conectividad, métricas, escenarios, fallas, checklist y guion de demo (Clase 06)
 - [COMO_CORRER.md](COMO_CORRER.md) — endpoints y puesta en marcha
 - [GUION_ORAL.md](GUION_ORAL.md) — guía para la defensa oral (keywords)
